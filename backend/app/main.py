@@ -1094,42 +1094,60 @@ async def sweep(body: SweepIn, account: Account = Depends(merchant_of)):
 
 @app.get("/api/console/stats")
 async def stats(account: Account = Depends(merchant_of)):
-    """Figures for the console's charts: the last 14 days, today by the hour, and what sells."""
+    """Figures for the console's cards and charts: 30 days of sales, today by the hour against a usual day,
+    what sells, how payments ended, and who bought."""
+    SPAN = 30
     async with Session() as s:
         shop = await s.get(Shop, account.near_id)
         tz = ZoneInfo((shop.hours or {}).get("tz", "Africa/Nairobi"))
         today = datetime.now(tz).date()
-        since = datetime.combine(today - timedelta(days=13), clock.min, tz).astimezone(UTC)
+        since = datetime.combine(today - timedelta(days=SPAN - 1), clock.min, tz).astimezone(UTC)
         mine = Order.shop_near_id == account.near_id
         sold = list(await s.scalars(select(Order).where(mine, Order.paid_at >= since)))
         back = list(await s.scalars(select(Order).where(mine, Order.refunded_at >= since)))
+        refused = list(await s.scalars(select(Order).where(mine, Order.status == "refused", Order.created_at >= since)))
+        # Who had already paid here before today: they count as returning.
+        known = set(await s.scalars(select(Order.customer_near_id).where(
+            mine, Order.paid_at < datetime.combine(today, clock.min, tz).astimezone(UTC)).distinct()))
         moves = list(await s.scalars(select(Deposit).where(Deposit.customer_near_id == account.near_id, Deposit.mode == "out")
                                      .order_by(Deposit.created_at.desc()).limit(8)))
 
     def kes(o: Order) -> int:
         return round(fx.to_kes(o.total or 0, (o.settled or {}).get("rate")))
 
-    days = {today - timedelta(days=n): {"sales": 0, "refunds": 0, "count": 0} for n in range(13, -1, -1)}
-    hours = [0] * 24
+    days = {today - timedelta(days=n): {"sales": 0, "refunds": 0, "count": 0, "refunded": 0, "refused": 0, "who": set()} for n in range(SPAN - 1, -1, -1)}
+    hours, usual = [0] * 24, [0.0] * 24
     items: dict[str, dict] = {}
     for o in sold:
         at = utc(o.paid_at).astimezone(tz)
-        if at.date() in days:
-            days[at.date()]["sales"] += kes(o)
-            days[at.date()]["count"] += 1
+        d = days.get(at.date())
+        if d is None:
+            continue
+        d["sales"] += kes(o)
+        d["count"] += 1
+        d["who"].add(o.customer_near_id)
         if at.date() == today:
             hours[at.hour] += kes(o)
-        if o.status == "paid":
+        elif (today - at.date()).days <= 14:
+            usual[at.hour] += kes(o) / 14
+        if o.status == "paid" and (today - at.date()).days < 14:
             for line in o.lines or []:
                 it = items.setdefault(line["name"], {"name": line["name"], "qty": 0, "amount": 0})
                 it["qty"] += line["qty"]
                 it["amount"] += round(fx.to_kes(line["qty"] * line["unit_price"], (o.settled or {}).get("rate")))
     for o in back:
-        at = utc(o.refunded_at).astimezone(tz)
-        if at.date() in days:
-            days[at.date()]["refunds"] += kes(o)
-    series = [{"day": d.isoformat(), **v} for d, v in days.items()]
-    return {"days": series, "hours": hours, "today": series[-1], "yesterday": series[-2],
+        d = days.get(utc(o.refunded_at).astimezone(tz).date())
+        if d:
+            d["refunds"] += kes(o)
+            d["refunded"] += 1
+    for o in refused:
+        d = days.get(utc(o.created_at).astimezone(tz).date())
+        if d:
+            d["refused"] += 1
+    buyers = days[today]["who"]
+    series = [{"day": day.isoformat(), **{k: v for k, v in d.items() if k != "who"}, "customers": len(d["who"])} for day, d in days.items()]
+    return {"days": series, "hours": hours, "usual": [round(v) for v in usual], "today": series[-1], "yesterday": series[-2],
+            "returning_today": len(buyers & known),
             "top": sorted(items.values(), key=lambda x: -x["amount"])[:6],
             "moves": [{"id": d.id, "amount": d.credited, "at_ms": ms(d.created_at), "symbol": d.symbol,
                        "chain": intents.CHAINS.get(d.chain, d.chain.title())} for d in moves]}

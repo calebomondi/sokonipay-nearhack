@@ -5,7 +5,7 @@ import { Profile } from '@shared/Profile'
 import { Scanner } from '@shared/Scanner'
 import { Button, Card, EXPLORER_ACCOUNT, Meter, Money, Notice, Spinner, Tick, TxLink, fmt, when, Logo, ShopIcon, shopLook, usd } from '@shared/ui'
 import Withdraw from '@shared/Withdraw'
-import { DaysChart, HoursChart, TopItems, type Day } from './Charts'
+import { HoursChart, Metric, Mix, Outcomes, SalesChart, type Day } from './Charts'
 import { AgentPanel } from './AgentPanel'
 import { ShopCode } from './ShopCode'
 
@@ -37,8 +37,16 @@ const STATUS: Record<string, { text: string; cls: string }> = {
 }
 
 type ShopRef = { near_id: string; name: string; kind: string; status: string }
-type Stats = { days: Day[]; hours: number[]; today: Day; yesterday: Day; top: { name: string; qty: number; amount: number }[]
+type Stats = { days: Day[]; hours: number[]; usual: number[]; today: Day; yesterday: Day; returning_today: number; top: { name: string; qty: number; amount: number }[]
   moves: { id: string; amount: number; at_ms: number; symbol: string; chain: string }[] }
+
+/** Today against yesterday as a chip: a percentage when there is something to compare with. */
+const against = (now: number, before: number): { up: boolean; text: string } | null =>
+  before > 0 ? { up: now >= before, text: `${Math.abs(Math.round(((now - before) / before) * 100))}%` } : null
+const average = (days: Day[]): number => {
+  const n = days.reduce((a, x) => a + x.count, 0)
+  return n ? Math.round(days.reduce((a, x) => a + x.sales, 0) / n) : 0
+}
 
 export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean; shops: ShopRef[]; onSwitch: (nearId: string) => void }) {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -111,6 +119,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   const sold = d.orders.filter((o) => o.kind === 'Ticket' && o.status === 'paid')
   const people = sold.reduce((n, o) => n + (o.lines ?? []).reduce((m, l) => m + l.qty, 0), 0)
   const paid = d.orders.filter((o) => o.status === 'paid')
+  const low = d.items.filter((i) => i.stock <= 5)
   const words = { sales: venue ? 'Ticket sales' : counter ? 'Sales' : 'Orders', catalogue: venue ? 'Tickets' : 'Menu and stock' }
   const tabs: [Tab, string][] = [['overview', 'Overview'], ['sales', words.sales], ...(counter ? [] : [['catalogue', words.catalogue] as [Tab, string]]), ['plans', 'Subscriptions'], ['rules', 'Settings']]
 
@@ -169,22 +178,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
       </div>
 
       <main className="mx-auto w-full max-w-7xl space-y-6 px-5 pb-14 pt-9">
-        <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
-          <div>
-            <h1 className="text-4xl font-extrabold leading-tight tracking-tight">{d.name} {d.verified && <Tick size={26} />}</h1>
-            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-soft">
-              {d.place}
-              {d.hours && <span>Open {d.hours.open} to {d.hours.close}{venue ? (d.open ? ', open now' : ', closed now') : ''}</span>}
-              <a href={EXPLORER_ACCOUNT + d.near_id} target="_blank" rel="noreferrer" className="hover:underline">{d.near_id}</a>
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {d.verified ? null : d.status === 'suspended'
-              ? <span className="rounded-full bg-bad-wash px-2.5 py-1 text-xs font-semibold text-bad">Suspended</span>
-              : <span className="rounded-full bg-amber-wash px-2.5 py-1 text-xs font-semibold text-amber">Not verified yet</span>}
-            {d.kind === 'food' && <span className="rounded-full bg-card px-3 py-1.5 text-xs font-medium">Agent: {d.agents}</span>}
-          </div>
-        </header>
+        <ShopProfile d={d} onSaved={() => load()} />
         {error && <Notice>{error}</Notice>}
         {d.status === 'pending' && (
           <div className="rounded-3xl bg-amber-wash p-5 print:hidden">
@@ -196,76 +190,65 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
         {tab === 'overview' && (
           <>
+            {live && paid.length === 0 && <FirstSteps kind={d.kind} hasPrices={counter || d.items.length > 0} onPrint={() => window.print()} />}
+
+            {/* The four figures an owner looks at first. */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 print:hidden">
-              <Card className="!bg-ink text-white">
-                <p className="text-sm text-white/70">Balance</p>
-                <p className="mt-1 text-4xl font-extrabold tracking-tight"><Money micro={d.balance} className="[&>span:first-child]:text-white/60" /></p>
-                <p className="num mt-1 text-xs text-white/60">{usd(d.balance)} sUSD on NEAR. {kept / 100}% of every sale stays here.</p>
-                <button type="button" disabled={d.balance < 1_000_000} onClick={() => setPaying(true)} className="mt-3 rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-fill disabled:opacity-40">Withdraw</button>
-              </Card>
-              {d.splits.map((s) => (
-                <Card key={s.account_id}>
-                  <p className="text-sm capitalize text-soft">{s.account_id.split('.')[0]}</p>
-                  <p className="mt-1 text-4xl font-extrabold tracking-tight"><Money micro={s.balance} /></p>
-                  <p className="mt-2 text-xs text-soft">{s.bps / 100}% of every sale, split by the contract</p>
-                  {s.account_id.endsWith('.' + d.near_id) && s.balance > 0 && (
-                    <button type="button" disabled={moving !== null} onClick={() => sweep(s.account_id)} className="mt-3 rounded-full bg-fill px-3 py-1.5 text-xs font-semibold hover:bg-line disabled:opacity-50">
-                      {moving === s.account_id ? 'Moving…' : 'Move to balance'}
+              <Metric dark label="Balance" value={<Money micro={d.balance} className="[&>span:first-child]:text-white/60" />}
+                note={<>{usd(d.balance)} sUSD on NEAR. {kept / 100}% of every sale stays here.</>}>
+                <button type="button" disabled={d.balance < 1_000_000} onClick={() => setPaying(true)} className="mt-4 w-fit rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-fill disabled:opacity-40">Withdraw</button>
+              </Metric>
+              <Metric label="Today" value={stats ? <><span className="mr-1 text-base font-semibold text-soft">KES</span>{stats.today.sales.toLocaleString('en-US')}</> : '…'}
+                note={stats ? `${stats.today.count} ${stats.today.count === 1 ? 'sale' : 'sales'}${stats.today.refunds ? `, KES ${stats.today.refunds.toLocaleString('en-US')} refunded` : ''}` : ''}
+                change={stats ? against(stats.today.sales, stats.yesterday.sales) : null} trend={stats?.days.slice(-14).map((x) => x.sales)} />
+              <Metric label="Average sale" value={stats ? <><span className="mr-1 text-base font-semibold text-soft">KES</span>{average(stats.days.slice(-14)).toLocaleString('en-US')}</> : '…'}
+                note="Over the last 14 days" change={stats ? against(average([stats.today]), average([stats.yesterday])) : null}
+                trend={stats?.days.slice(-14).map((x) => (x.count ? x.sales / x.count : 0))} />
+              <Metric label="Customers today" value={stats ? stats.today.customers : '…'}
+                note={stats ? (stats.today.customers ? `${stats.returning_today} had paid here before` : 'Nobody has paid yet today') : ''}
+                change={stats && (stats.today.customers || stats.yesterday.customers) ? { up: stats.today.customers >= stats.yesterday.customers, text: String(Math.abs(stats.today.customers - stats.yesterday.customers)) } : null}
+                trend={stats?.days.slice(-14).map((x) => x.customers)} />
+            </div>
+
+            {/* Money the contract set aside, and what matters for this kind of shop. */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 print:hidden">
+              {d.splits.map((x) => (
+                <Metric key={x.account_id} label={x.account_id.split('.')[0].replace(/^./, (c) => c.toUpperCase())} value={<Money micro={x.balance} />} note={`${x.bps / 100}% of every sale, split by the contract`}>
+                  {x.account_id.endsWith('.' + d.near_id) && x.balance > 0 && (
+                    <button type="button" disabled={moving !== null} onClick={() => sweep(x.account_id)} className="mt-3 w-fit rounded-full bg-fill px-3 py-1.5 text-xs font-semibold hover:bg-line disabled:opacity-50">
+                      {moving === x.account_id ? 'Moving…' : 'Move to balance'}
                     </button>
                   )}
-                </Card>
+                </Metric>
               ))}
-              <Card className={d.splits.length === 0 ? 'lg:col-span-3' : d.splits.length === 1 ? 'lg:col-span-2' : ''}>
-                {venue ? (
-                  <>
-                    <p className="text-sm text-soft">Recent ticket sales</p>
-                    <p className="num mt-1 text-4xl font-extrabold tracking-tight">{people} <span className="text-base font-semibold text-soft">{people === 1 ? 'person' : 'people'}</span></p>
-                    <p className="mt-2 text-xs text-soft">On {sold.length} {sold.length === 1 ? 'ticket' : 'tickets'}. Each customer paid from their own phone, with no phone number given at the gate.</p>
-                  </>
-                ) : counter ? (
-                  <>
-                    <p className="text-sm text-soft">Recent sales</p>
-                    <p className="num mt-1 text-4xl font-extrabold tracking-tight">{paid.length} <span className="text-base font-semibold text-soft">paid</span></p>
-                    <p className="mt-2 text-xs text-soft">You key in the amount, the customer scans, their agent pays. No card machine and no phone number.</p>
-                  </>
-                ) : (
-                  <>
+              {venue && <Metric label="Recent ticket sales" value={<>{people} <span className="text-base font-semibold text-soft">{people === 1 ? 'person' : 'people'}</span></>} note={`On ${sold.length} ${sold.length === 1 ? 'ticket' : 'tickets'}. Each paid from their own phone, with no phone number given at the gate.`} />}
+              {counter && <Metric label="Recent sales" value={<>{paid.length} <span className="text-base font-semibold text-soft">paid</span></>} note="You key in the amount, the customer scans, their agent pays." />}
+              {d.kind === 'food' && (
+                <>
+                  <Metric label="Running low" value={<>{low.length} <span className="text-base font-semibold text-soft">{low.length === 1 ? 'item' : 'items'}</span></>}
+                    note={low.length ? low.slice(0, 3).map((i) => `${i.name} (${i.stock})`).join(', ') : 'Everything has more than 5 in stock'} />
+                  <section className="rounded-3xl bg-card p-5 sm:col-span-2">
                     <div className="flex items-baseline justify-between gap-3">
                       <p className="text-sm text-soft">Your agent can spend today</p>
                       <p className="num text-sm"><span className="font-semibold">{lim ? fmt(Math.max(0, lim.per_day - lim.spent_in_window)) : fmt(0)}</span> <span className="text-soft">of {lim ? fmt(lim.per_day) : fmt(0)}</span></p>
                     </div>
                     <div className="mt-3"><Meter used={lim?.spent_in_window ?? 0} max={lim?.per_day ?? 0} /></div>
                     <p className="mt-3 text-xs text-soft">
-                      {d.supplier
-                        ? <>It restocks from {d.supplier.name} on its own, up to <span className="num">{lim ? fmt(lim.per_payment) : fmt(0)}</span> a purchase. </>
-                        : 'No supplier is connected yet, so your agent doesn’t restock. '}
+                      {d.supplier ? <>It restocks from {d.supplier.name} on its own, up to <span className="num">{lim ? fmt(lim.per_payment) : fmt(0)}</span> a purchase. </> : 'No supplier is connected yet, so your agent doesn’t restock. '}
                       It can’t withdraw, raise these limits or change the split.
                     </p>
-                  </>
-                )}
-              </Card>
+                  </section>
+                </>
+              )}
             </div>
 
-            {live && paid.length === 0 && <FirstSteps kind={d.kind} hasPrices={counter || d.items.length > 0} onPrint={() => window.print()} />}
-
             <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] print:hidden">
-              <Card>
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4">
-                  <h2 className="text-xl font-bold">Sales, last 14 days</h2>
-                  {stats && <Trend today={stats.today.sales} yesterday={stats.yesterday.sales} />}
-                </div>
-                <div className="mt-3">{stats ? <DaysChart days={stats.days} /> : <div className="skeleton h-52" />}</div>
-              </Card>
-              <div className="grid gap-4">
-                <Card>
-                  <h2 className="text-xl font-bold">Today by the hour</h2>
-                  <div className="mt-2">{stats ? <HoursChart hours={stats.hours} /> : <div className="skeleton h-28" />}</div>
-                </Card>
-                <Card>
-                  <h2 className="text-xl font-bold">What sells</h2>
-                  <div className="mt-3">{stats ? <TopItems items={stats.top} unit={venue ? 'tickets' : 'sold'} /> : <div className="skeleton h-24" />}</div>
-                </Card>
-              </div>
+              <Card>{stats ? <SalesChart days={stats.days} /> : <div className="skeleton h-80" />}</Card>
+              <Card>{stats ? <HoursChart hours={stats.hours} usual={stats.usual} /> : <div className="skeleton h-64" />}</Card>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2 print:hidden">
+              <Card>{stats ? <Mix items={stats.top} unit={venue ? 'tickets' : 'sold'} /> : <div className="skeleton h-40" />}</Card>
+              <Card>{stats ? <Outcomes days={stats.days} /> : <div className="skeleton h-40" />}</Card>
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -357,10 +340,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
         {tab === 'rules' && (
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            <div className="space-y-6">
-              <About blurb={d.blurb} place={d.place} hours={d.hours} venue={venue} onSaved={() => load()} />
-              <Discounts rules={d.discounts} kind={d.kind} onSaved={() => load()} />
-            </div>
+            <Discounts rules={d.discounts} kind={d.kind} onSaved={() => load()} />
             <Split splits={d.splits} onSaved={() => load()} />
           </div>
         )}
@@ -417,18 +397,6 @@ function Switcher({ shops, current, onSwitch }: { shops: ShopRef[]; current: str
         </div>
       )}
     </div>
-  )
-}
-
-/** Today against yesterday, in words and a colour. */
-function Trend({ today, yesterday }: { today: number; yesterday: number }) {
-  if (!yesterday && !today) return null
-  const diff = yesterday ? Math.round(((today - yesterday) / yesterday) * 100) : null
-  return (
-    <p className="num text-sm text-soft">
-      Today <span className="font-semibold text-ink">KES {today.toLocaleString('en-US')}</span>
-      {diff !== null && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${diff >= 0 ? 'bg-good-wash text-good' : 'bg-bad-wash text-bad'}`}>{diff >= 0 ? 'up' : 'down'} {Math.abs(diff)}% on yesterday</span>}
-    </p>
   )
 }
 
@@ -742,64 +710,105 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
   )
 }
 
-/** Who the shop is, where and when: what a customer reads on the shop's page before what it sells. */
-function About({ blurb, place, hours, venue, onSaved }: { blurb: string; place: string; hours: { open: string; close: string } | null; venue: boolean; onSaved: () => void }) {
-  const [text, setText] = useState(blurb)
-  const [where, setWhere] = useState(place)
-  const [timed, setTimed] = useState(venue || !!hours)
-  const [open, setOpen] = useState(hours?.open ?? '08:00')
-  const [close, setClose] = useState(hours?.close ?? '18:00')
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+const KINDS: Record<string, string> = { venue: 'Park or venue', food: 'Food and drink', counter: 'Pay at the counter' }
+const PIN = 'M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11zM12 12.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z'
+const CLOCK = 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 7.5v4.8l3 1.8'
+const SHIELD = 'M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6zM9 12l2.2 2.2L15.2 10'
+function Icon({ d }: { d: string }) {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-soft"><path d={d} /></svg>
+}
+
+/**
+ * The shop as its customers see it, at the top of the console: who it is, where and when. "Edit" turns the
+ * same card into a form, so the owner changes exactly what a customer reads.
+ */
+function ShopProfile({ d, onSaved }: { d: Data; onSaved: () => void }) {
+  const venue = d.kind === 'venue'
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(d.blurb)
+  const [where, setWhere] = useState(d.place)
+  const [timed, setTimed] = useState(venue || !!d.hours)
+  const [open, setOpen] = useState(d.hours?.open ?? '08:00')
+  const [close, setClose] = useState(d.hours?.close ?? '18:00')
+  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const changed = text !== blurb || where !== place || timed !== (venue || !!hours) || (timed && (open !== hours?.open || close !== hours?.close))
-  const field = 'mt-1 w-full rounded-2xl bg-fill px-4 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris'
-  const cell = 'rounded-full bg-fill px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-iris'
+  const look = shopLook(d.name)
+  const begin = () => { setText(d.blurb); setWhere(d.place); setTimed(venue || !!d.hours); setOpen(d.hours?.open ?? '08:00'); setClose(d.hours?.close ?? '18:00'); setError(''); setEditing(true) }
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
     try {
       await api('/api/console/about', { body: { blurb: text.trim(), place: where.trim(), hours: timed ? { open, close } : null } })
-      setNote({ ok: true, text: 'Saved. Customers see this on your page.' })
+      setEditing(false)
       onSaved()
     } catch (err) {
-      setNote({ ok: false, text: (err as Error).message })
+      setError((err as Error).message)
     } finally {
       setBusy(false)
     }
   }
+  const field = 'mt-1 w-full rounded-2xl bg-fill px-4 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris'
+  const cell = 'rounded-full bg-fill px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-iris'
+  const hoursLine = !d.hours ? '' : d.hours.open === '00:00' && d.hours.close === '23:59' ? 'Open all day' : `${d.hours.open} to ${d.hours.close}`
   return (
-    <section className="space-y-3">
-      <h2 className="px-1 text-xl font-bold">About your shop</h2>
-      <Card>
-        <form onSubmit={save} className="space-y-4">
-          <label className="block text-sm font-medium">Who you are and what you offer
-            <textarea className={`${field} resize-none`} rows={3} maxLength={200} value={text} onChange={(e) => setText(e.target.value)} placeholder="A 30-hectare forest park in the city. Walking trails, picnic lawns and over 350 tree species." />
-            <span className="num mt-1 block text-right text-xs font-normal text-soft">{text.length} of 200</span>
-          </label>
-          <label className="block text-sm font-medium">Where customers find you
-            <input className={field} maxLength={120} value={where} onChange={(e) => setWhere(e.target.value)} placeholder="State House Road, Nairobi" />
-          </label>
-          <fieldset>
-            <legend className="text-sm font-medium">Opening hours, Nairobi time</legend>
-            {!venue && (
-              <label className="mt-1.5 flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />
-                Show opening hours on my page
+    <section className="frost rounded-3xl p-5 ring-1 ring-line print:hidden" aria-label="Your shop as customers see it">
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-4">
+        <span aria-hidden className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] text-xl font-extrabold" style={{ background: look.tint, color: look.ink }}>{look.initials}</span>
+        <div className="min-w-0 flex-1 basis-72">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-3xl font-extrabold leading-tight tracking-tight">{d.name}{d.verified && <>{'\u00A0'}<Tick size={24} /></>}</h1>
+            {!d.verified && (d.status === 'suspended'
+              ? <span className="rounded-full bg-bad-wash px-2.5 py-1 text-xs font-semibold text-bad">Suspended</span>
+              : <span className="rounded-full bg-amber-wash px-2.5 py-1 text-xs font-semibold text-amber">Not verified yet</span>)}
+          </div>
+          <p className="text-sm text-soft">{KINDS[d.kind]}{d.kind === 'food' ? ` · Agent: ${d.agents}` : ''}</p>
+
+          {editing ? (
+            <form onSubmit={save} className="mt-4 max-w-2xl space-y-4">
+              <label className="block text-sm font-medium">Who you are and what you offer
+                <textarea autoFocus className={`${field} resize-none`} rows={3} maxLength={200} value={text} onChange={(e) => setText(e.target.value)} placeholder="A 30-hectare forest park in the city. Walking trails, picnic lawns and over 350 tree species." />
+                <span className="num mt-1 block text-right text-xs font-normal text-soft">{text.length} of 200</span>
               </label>
-            )}
-            {timed && (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <input type="time" aria-label="Opens at" className={cell} value={open} onChange={(e) => setOpen(e.target.value)} />
-                <span className="text-sm text-soft">to</span>
-                <input type="time" aria-label="Closes at" className={cell} value={close} onChange={(e) => setClose(e.target.value)} />
+              <label className="block text-sm font-medium">Where customers find you
+                <input className={field} maxLength={120} value={where} onChange={(e) => setWhere(e.target.value)} placeholder="State House Road, Nairobi" />
+              </label>
+              <fieldset>
+                <legend className="text-sm font-medium">Opening hours, Nairobi time</legend>
+                {!venue && (
+                  <label className="mt-1.5 flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />
+                    Show opening hours on my page
+                  </label>
+                )}
+                {timed && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input type="time" aria-label="Opens at" className={cell} value={open} onChange={(e) => setOpen(e.target.value)} />
+                    <span className="text-sm text-soft">to</span>
+                    <input type="time" aria-label="Closes at" className={cell} value={close} onChange={(e) => setClose(e.target.value)} />
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-soft">{venue ? 'Tickets are sold while you’re open and stop working at closing time. A ticket already sold keeps the closing time it was sold with.' : 'Shown to customers. Orders are still taken outside these hours.'}</p>
+              </fieldset>
+              {error && <Notice>{error}</Notice>}
+              <div className="flex gap-2">
+                <Button tone="dark" disabled={busy} className="!px-5 !py-2.5 text-sm">{busy ? 'Saving…' : 'Save'}</Button>
+                <Button type="button" tone="quiet" onClick={() => setEditing(false)} className="!px-5 !py-2.5 text-sm">Cancel</Button>
               </div>
-            )}
-            <p className="mt-2 text-xs text-soft">{venue ? 'Tickets are sold while you’re open and stop working at closing time. A ticket already sold keeps the closing time it was sold with.' : 'Shown to customers. Orders are still taken outside these hours.'}</p>
-          </fieldset>
-          <Button tone="dark" disabled={busy || !changed} className="!px-4 !py-2.5 text-sm">{busy ? 'Saving…' : 'Save'}</Button>
-          {note && <Notice tone={note.ok ? 'good' : 'bad'}>{note.text}</Notice>}
-        </form>
-      </Card>
+            </form>
+          ) : (
+            <>
+              {d.blurb ? <p className="mt-3 max-w-2xl leading-relaxed">{d.blurb}</p>
+                : <button type="button" onClick={begin} className="mt-3 rounded-2xl border border-dashed border-line px-4 py-2.5 text-left text-sm text-soft hover:border-soft hover:text-ink">Add a short description: who you are and what you offer. Customers read it before your prices.</button>}
+              <ul className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                <li className="flex items-center gap-2"><Icon d={PIN} />{d.place || <span className="text-soft">No place given</span>}</li>
+                {hoursLine && <li className="flex items-center gap-2"><Icon d={CLOCK} />{venue && <span className={d.open ? 'font-medium text-good' : 'text-soft'}>{d.open ? 'Open now' : 'Closed now'}</span>}<span className="text-soft">{hoursLine}</span></li>}
+                <li className="flex min-w-0 items-center gap-2"><Icon d={SHIELD} /><a href={EXPLORER_ACCOUNT + d.near_id} target="_blank" rel="noreferrer" className="truncate text-soft hover:underline">{d.near_id}</a></li>
+              </ul>
+            </>
+          )}
+        </div>
+        {!editing && <Button tone="quiet" onClick={begin} className="!px-4 !py-2 text-sm">Edit</Button>}
+      </div>
     </section>
   )
 }
