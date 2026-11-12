@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { api, stream, type Ev } from '@shared/api'
-import { Button, Card, Notice, VerifiedLine, fmt, usd } from '@shared/ui'
+import { Button, Card, fmt, usd } from '@shared/ui'
 import type { Shop } from './ShopPage'
 import { Plans } from './Subs'
+import { ShopHeader } from './ShopHeader'
 import { Transcript } from './Transcript'
 
 type Charge = { id: string; amount: number; amount_kes: number; note: string; taken: boolean }
@@ -51,11 +52,7 @@ export default function Counter({ shop }: { shop: Shop & { charges?: Charge[] } 
   return (
     <main className="panel mx-auto flex w-full max-w-md flex-col gap-4 px-4 pb-8 pt-5">
       <Link to="/" className="w-fit rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line">Back</Link>
-      <header className="space-y-2">
-        <h1 className="text-4xl font-extrabold leading-tight tracking-tight">{shop.name}</h1>
-        {shop.verified ? <VerifiedLine id={shop.near_id} /> : <Notice>{shop.near_id} is not a verified shop. Your agent won’t pay it.</Notice>}
-        {shop.place && <p className="text-sm text-soft">{shop.place}</p>}
-      </header>
+      <ShopHeader shop={shop} />
 
       {events.length > 0 && <Transcript events={events} running={running} shop={shop} />}
       <div ref={end} />

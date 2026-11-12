@@ -35,6 +35,8 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
   const [at, setAt] = useState<'about' | 'sell'>('about')
   const [name, setName] = useState('')
   const [place, setPlace] = useState('')
+  const [about, setAbout] = useState('')
+  const [timed, setTimed] = useState(false)
   const [open, setOpen] = useState('06:00')
   const [close, setClose] = useState('18:30')
   const [rows, setRows] = useState<Row[]>([{ name: '', price: '', category: 'main' }])
@@ -126,7 +128,7 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
   const cell = 'min-w-0 rounded-2xl bg-fill px-3 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris'
   const setRow = (n: number, patch: Partial<Row>) => setRows(rows.map((r, i) => (i === n ? { ...r, ...patch } : r)))
   const submit = () => send('/api/shop', {
-    kind, name, place, blurb: '', hours: venue ? { open, close } : null,
+    kind, name, place, blurb: about.trim(), hours: venue || timed ? { open, close } : null,
     items: counter ? [] : filled.map((r) => ({ name: r.name.trim(), price_kes: Math.round(Number(r.price)), category: r.category })),
   })
   const shown = name.trim() || (venue ? 'Your venue' : counter ? 'Your business' : 'Your stall')
@@ -156,15 +158,24 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
             <label className="block text-sm font-medium">Where customers find you
               <input className={field} value={place} onChange={(e) => setPlace(e.target.value)} placeholder={venue ? 'State House Road, Nairobi' : counter ? 'Argwings Kodhek Road, Nairobi' : 'Stall 9, Gikomba Market'} maxLength={120} />
             </label>
-            {venue && (
+            <label className="block text-sm font-medium">Who you are and what you offer <span className="font-normal text-soft">(optional)</span>
+              <textarea className={`${field} resize-none`} rows={2} maxLength={200} value={about} onChange={(e) => setAbout(e.target.value)} placeholder={venue ? 'A forest park in the city. Walking trails, picnic lawns and over 350 tree species.' : counter ? 'Fuel, a tyre bay and a small shop, open late.' : 'Home-style Kenyan lunches, cooked fresh every morning.'} />
+            </label>
+            {!venue && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />
+                Show opening hours on my page
+              </label>
+            )}
+            {(venue || timed) && (
               <fieldset>
-                <legend className="text-sm font-medium">Gate hours, Nairobi time</legend>
+                <legend className="text-sm font-medium">{venue ? 'Gate hours' : 'Opening hours'}, Nairobi time</legend>
                 <div className="mt-1 flex items-center gap-3">
                   <input type="time" aria-label="Opens at" className={cell} value={open} onChange={(e) => setOpen(e.target.value)} />
                   <span className="text-sm text-soft">to</span>
                   <input type="time" aria-label="Closes at" className={cell} value={close} onChange={(e) => setClose(e.target.value)} />
                 </div>
-                <p className="mt-1.5 text-xs text-soft">A ticket works until closing time on the day it was bought.</p>
+                {venue && <p className="mt-1.5 text-xs text-soft">A ticket works until closing time on the day it was bought.</p>}
               </fieldset>
             )}
             {counter && <p className="rounded-2xl bg-canvas px-4 py-3 text-sm">A counter has no price list. For each sale you key in the amount in shillings, the customer scans your code, and their agent pays it.</p>}
@@ -217,10 +228,22 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
             <ShopIcon name={shown} />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 font-bold"><span className="truncate">{shown}</span><Tick /></p>
-              <p className="truncate text-sm text-soft">{place.trim() || 'Where customers find you'}</p>
+              <p className="text-sm text-soft">{venue ? 'Park or venue' : counter ? 'Pay at the counter' : 'Food and drink'}</p>
             </div>
           </div>
-          {venue && <p className="mt-3 text-sm text-soft">Open {open} to {close}</p>}
+          {about.trim() && <p className="mt-3 text-sm leading-relaxed">{about.trim()}</p>}
+          <ul className="mt-3 space-y-1.5 text-sm text-soft">
+            <li className="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11zM12 12.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z" /></svg>
+              <span className="truncate">{place.trim() || 'Where customers find you'}</span>
+            </li>
+            {(venue || timed) && (
+              <li className="flex items-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 7.5v4.8l3 1.8" /></svg>
+                Open {open} to {close}
+              </li>
+            )}
+          </ul>
           {!counter && (
             <ul className="mt-3 divide-y divide-line border-t border-line">
               {(filled.length ? filled : [{ name: venue ? 'Your first ticket' : 'Your first dish', price: '', category: '' }]).map((r, n) => (

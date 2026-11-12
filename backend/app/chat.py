@@ -6,6 +6,7 @@ and the contract's limits still apply after that."""
 
 import asyncio
 import json
+from datetime import datetime
 import re
 import secrets
 
@@ -296,4 +297,76 @@ async def run(account: Account, text: str, thread_id: str | None, emit: Emit) ->
                 said = "Something went wrong on my side and nothing was paid. Try again in a moment."
     said = said or "I'm not sure how to help with that. Ask about your balance, or tell me what to buy."
     await _save(me, t.id, "agent", said, h.order_id)
+    await emit({"t": "say", "text": said})
+
+
+# ---------------------------------------------------------------- the shop owner's side
+
+
+async def run_shop(account: Account, text: str, thread_id: str | None, emit: Emit, facts) -> None:
+    """One turn of the owner asking the shop's agent about the business. It reads the shop's figures and answers.
+    It changes nothing: refunds, withdrawals, prices and the split are the owner's own actions in the console.
+    `facts(day=None)` returns the shop's current figures, or one day's totals."""
+    await fx.refresh()
+    me = account.near_id
+    async with Session() as s:
+        t = await s.get(ChatThread, thread_id) if thread_id else None
+        if t is None or t.customer_near_id != me:
+            t = ChatThread(id="t-" + secrets.token_hex(6), customer_near_id=me, title=_title(text))
+            s.add(t)
+            await s.commit()
+    await emit({"t": "thread", "id": t.id, "title": t.title})
+    past = await history(me, t.id)
+    await _save(me, t.id, "user", text)
+
+    async def summary() -> str:
+        f = await facts()
+        best = f["best_sellers_14_days"][0]["name"] if f["best_sellers_14_days"] else None
+        return (f"Today: KES {f['today']['sales_kes']:,} from {f['today']['sales']} sales (yesterday KES {f['yesterday']['sales_kes']:,}). "
+                f"Balance {f['balance']}." + (f" Best seller: {best}." if best else ""))
+
+    try:
+        if not settings.llm_enabled:
+            said = await summary()
+        else:
+            async def shop_figures() -> str:
+                await emit({"t": "step", "text": "Reading the shop's figures"})
+                return json.dumps(await facts())
+
+            async def day_totals(day: str) -> str:
+                await emit({"t": "step", "text": f"Reading {day}"})
+                try:
+                    return json.dumps(await facts(datetime.strptime(day, "%Y-%m-%d").date()))
+                except ValueError:
+                    return json.dumps({"error": "Give the day as YYYY-MM-DD."})
+
+            tools = [
+                StructuredTool.from_function(coroutine=shop_figures, name="shop_figures", description="The shop's current figures: balance, money set aside, sales today, yesterday and the last 7 days, best sellers, prices and stock, plans and subscribers, discount rules, latest sales, refused payments and withdrawals. Amounts are in KES."),
+                StructuredTool.from_function(coroutine=day_totals, name="day_totals", description="Totals for one day, given as YYYY-MM-DD: sales, refunds, net, people who bought and who were admitted, refused payments."),
+            ]
+            model, fallbacks = llm.chat()
+            model = model.bind_tools(tools).with_fallbacks([m.bind_tools(tools) for m in fallbacks]) if fallbacks else model
+            prompt = (
+                f"You are the business agent of {account.name}, a shop on SokoniPay in Kenya. The owner is asking you about their shop. "
+                f"Today is {datetime.now().strftime('%A %Y-%m-%d')}. Amounts are in Kenyan shillings (KES).\n"
+                "- Call shop_figures before answering anything about the business, and day_totals for a specific past day.\n"
+                "- Answer in one to four short sentences of plain text, with the actual numbers. Compare with yesterday when it helps.\n"
+                "- You may point out something worth acting on (stock running low, a refused payment, a day that dipped) in one sentence.\n"
+                "- You only read. You cannot refund, withdraw, change prices, stock, hours, discounts or the split. If asked, say which "
+                "section of the console does it: Sales (refunds), Overview (withdraw), Tickets or Menu (prices and stock), Settings (about, discounts, split), Subscriptions (plans).\n"
+                "- Use only what the tools return. If the figures don't answer the question, say so."
+            )
+            agent = create_react_agent(model, tools, prompt=prompt)
+            msgs = [("user" if m["role"] == "user" else "assistant", m["text"]) for m in past[-8:]] + [("user", text)]
+            out = await agent.ainvoke({"messages": msgs}, config={"recursion_limit": 10})
+            c = out["messages"][-1].content
+            said = (c if isinstance(c, str) else " ".join(p.get("text", "") for p in c if isinstance(p, dict))).strip()
+    except Exception as e:
+        await emit({"t": "step", "text": f"The AI model is unavailable ({type(e).__name__}), so here are the headline figures"})
+        try:
+            said = await summary()
+        except Exception:
+            said = "I couldn't read the shop's figures just now. Try again in a moment."
+    said = said or "I'm not sure how to help with that. Ask about sales, stock, subscribers or the balance."
+    await _save(me, t.id, "agent", said)
     await emit({"t": "say", "text": said})

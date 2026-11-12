@@ -444,7 +444,7 @@ function ShopList({ shops, used, empty }: { shops: ShopRow[] | null; used: Map<s
     <ul className="divide-y divide-line">
       {shops.map((s) => {
         const times = used.get(s.near_id)?.times
-        const about = s.kind === 'venue' ? (s.open ? 'Open, tickets at the gate' : 'Closed now') : s.kind === 'counter' ? s.place || 'Pay at the counter' : s.place || s.blurb
+        const about = s.blurb || (s.kind === 'venue' ? (s.open ? 'Open, tickets at the gate' : 'Closed now') : s.kind === 'counter' ? s.place || 'Pay at the counter' : s.place)
         return (
           <li key={s.near_id}>
             <Link to={`/shop/${s.near_id}`} className="flex items-center gap-3 px-5 py-4 hover:bg-canvas">

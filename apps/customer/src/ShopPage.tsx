@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { api, stream, type Ev } from '@shared/api'
-import { Button, Card, Notice, Spinner, VerifiedLine, fmt } from '@shared/ui'
+import { Button, Card, Notice, Spinner, fmt } from '@shared/ui'
 import { Transcript } from './Transcript'
 import Counter from './Counter'
+import { ShopHeader } from './ShopHeader'
 import { Plans, type PlanRow } from './Subs'
 import Venue from './Venue'
 
@@ -12,6 +13,7 @@ export type Shop = {
   hours: { open: string; close: string } | null; open: boolean; gate_says: string
   items: { sku: string; name: string; price: number; stock: number }[]
   plans: PlanRow[]
+  hours_line: string; discounts_for: string[]
 }
 
 /** Starting points built from this shop's own menu. */
@@ -79,13 +81,8 @@ export default function ShopPage() {
   return (
     <main className="mx-auto flex panel w-full max-w-md flex-col gap-4 px-4 pb-8 pt-5">
       <Link to="/" className="w-fit rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line">Back</Link>
-      <header className="space-y-2">
-        <h1 className="text-4xl font-extrabold leading-tight tracking-tight">{shop.name}</h1>
-        {shop.verified ? <VerifiedLine id={shop.near_id} /> : <Notice>{shop.near_id} is not a verified shop. Your agent won’t connect to it.</Notice>}
-        <p className="text-sm text-soft">
-          {tableCode ? 'You scanned the code at the shop, so this is a table order.' : 'Ordering ahead for pickup. Your agent talks to the shop’s agent for you.'}
-        </p>
-      </header>
+      <ShopHeader shop={shop} />
+      <p className="px-1 text-sm text-soft">{tableCode ? 'You scanned the code at the shop, so this is a table order.' : 'Ordering ahead for pickup. Your agent talks to the shop’s agent for you.'}</p>
 
       <details className="rounded-3xl bg-card px-5 py-4 text-sm">
         <summary className="cursor-pointer font-semibold">Menu</summary>

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { api, stream, type Ev } from '@shared/api'
-import { Button, Card, Notice, VerifiedLine, fmt } from '@shared/ui'
+import { Button, Card, Notice, fmt } from '@shared/ui'
 import type { Shop } from './ShopPage'
 import { Plans } from './Subs'
+import { ShopHeader } from './ShopHeader'
 import { Transcript } from './Transcript'
 
 /** A gate: pick how many of each ticket, your agent gets the invoice and pays, you get the ticket. */
@@ -55,13 +56,7 @@ export default function Venue({ shop }: { shop: Shop }) {
   return (
     <main className="mx-auto flex panel w-full max-w-md flex-col gap-4 px-4 pb-8 pt-5">
       <Link to="/" className="w-fit rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line">Back</Link>
-      <header className="space-y-2">
-        <h1 className="text-4xl font-extrabold leading-tight tracking-tight">{shop.name}</h1>
-        {shop.verified ? <VerifiedLine id={shop.near_id} /> : <Notice>{shop.near_id} is not a verified venue. Your agent won’t pay it.</Notice>}
-        <p className="text-sm text-soft">
-          {shop.place}{shop.place && shop.hours ? '. ' : ''}{shop.hours ? `Open ${shop.hours.open} to ${shop.hours.close}.` : ''}
-        </p>
-      </header>
+      <ShopHeader shop={shop} />
 
       {!gate.open && <Notice tone="plain">{gate.says} Tickets are sold while the gate is open.</Notice>}
 

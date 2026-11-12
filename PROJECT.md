@@ -69,6 +69,8 @@ The merchant owner sets the rules. The Merchant Agent runs the money.
 - **Running the money.** The owner withdraws the shop's balance as a stablecoin on a chain of their choice, and can move shares the contract set aside (savings) back to the main balance. Both need the owner's key, never the agent's. The console charts sales by day and by hour and shows what sells.
 - **A code that is recognisably ours.** Each shop's QR code is drawn with round dots, corner markers in the shop's own colour and its initials in the centre, framed with its name, a checkmark and the SokoniPay mark. A home-made sticker looks wrong beside it.
 - **Several shops, one account.** An owner can open up to five shops and switch between them. Each is its own NEAR account with its own balance, code and verification.
+- **The owner can ask the shop's agent.** A panel in the console answers questions about the business from its real figures: sales today against yesterday, what sells, stock running low, refused payments, subscribers, the balance. It reads and changes nothing; refunds, withdrawals and prices stay the owner's own actions.
+- **A shop introduces itself.** Each shop has a short description, its place and its opening hours. A customer sees these, with the verified account and whether a discount is on offer, before what the shop sells.
 - **Businesses only.** A payment can only go to an invoice from a verified shop. There are no person-to-person transfers.
 - **Daily statement.** One page per day: sales, refunds, net, people admitted, and how the contract divided each sale between the shop, savings and partners. It prints and downloads as CSV for an accountant.
 

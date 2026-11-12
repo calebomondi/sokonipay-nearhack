@@ -6,6 +6,7 @@ import { Scanner } from '@shared/Scanner'
 import { Button, Card, EXPLORER_ACCOUNT, Meter, Money, Notice, Spinner, Tick, TxLink, fmt, when, Logo, ShopIcon, shopLook, usd } from '@shared/ui'
 import Withdraw from '@shared/Withdraw'
 import { DaysChart, HoursChart, TopItems, type Day } from './Charts'
+import { AgentPanel } from './AgentPanel'
 import { ShopCode } from './ShopCode'
 
 type Item = { sku: string; name: string; price: number; price_kes: number; tags: string[]; stock: number; reorder_at: number; restock_qty: number }
@@ -13,7 +14,7 @@ type OrderRow = { id: string; customer: string; party_size: number; goal: string
 type Rule = { kind: 'total' | 'group' | 'time' | 'returning'; percent: number; min_kes?: number; people?: number; visits?: number; from?: string; to?: string; says: string }
 type ChargeRow = { id: string; amount: number; amount_kes: number; note: string; at: string; taken: boolean }
 type Data = {
-  near_id: string; name: string; place: string; verified: boolean; agents: string
+  near_id: string; name: string; place: string; blurb: string; verified: boolean; agents: string
   kind: 'venue' | 'food' | 'counter'; status: 'pending' | 'approved' | 'suspended'; hours: { open: string; close: string } | null; open: boolean
   balance: number; limits: Limits | null
   splits: { account_id: string; bps: number; balance: number }[]
@@ -110,8 +111,8 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   const sold = d.orders.filter((o) => o.kind === 'Ticket' && o.status === 'paid')
   const people = sold.reduce((n, o) => n + (o.lines ?? []).reduce((m, l) => m + l.qty, 0), 0)
   const paid = d.orders.filter((o) => o.status === 'paid')
-  const words = { sales: venue ? 'Ticket sales' : counter ? 'Sales' : 'Orders', catalogue: venue ? 'Tickets and hours' : 'Menu and stock' }
-  const tabs: [Tab, string][] = [['overview', 'Overview'], ['sales', words.sales], ...(counter ? [] : [['catalogue', words.catalogue] as [Tab, string]]), ['plans', 'Subscriptions'], ['rules', 'Discounts and split']]
+  const words = { sales: venue ? 'Ticket sales' : counter ? 'Sales' : 'Orders', catalogue: venue ? 'Tickets' : 'Menu and stock' }
+  const tabs: [Tab, string][] = [['overview', 'Overview'], ['sales', words.sales], ...(counter ? [] : [['catalogue', words.catalogue] as [Tab, string]]), ['plans', 'Subscriptions'], ['rules', 'Settings']]
 
   const sales = (rows: OrderRow[]) => rows.length === 0 ? (
     <Card><p className="text-sm text-soft">{venue ? 'No tickets sold yet. When someone scans your code and buys, the sale appears here.' : counter ? 'No sales yet. Key in an amount and the customer scans your code to pay it.' : 'No orders yet. When a customer’s agent contacts your agent, the order appears here.'}</p></Card>
@@ -349,7 +350,6 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
               <h2 className="px-1 text-xl font-bold">{venue ? 'Your tickets' : 'Menu and stock'}</h2>
               <Items items={d.items} venue={venue} restocks={!!d.supplier} onSaved={() => load()} />
             </section>
-            {venue && d.hours && <section className="space-y-3"><h2 className="px-1 text-xl font-bold">Hours</h2><Hours hours={d.hours} onSaved={() => load()} /></section>}
           </div>
         )}
 
@@ -357,11 +357,15 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
         {tab === 'rules' && (
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            <Discounts rules={d.discounts} kind={d.kind} onSaved={() => load()} />
+            <div className="space-y-6">
+              <About blurb={d.blurb} place={d.place} hours={d.hours} venue={venue} onSaved={() => load()} />
+              <Discounts rules={d.discounts} kind={d.kind} onSaved={() => load()} />
+            </div>
             <Split splits={d.splits} onSaved={() => load()} />
           </div>
         )}
       </main>
+      <AgentPanel shop={d.name} />
       {paying && (
         <div className="print:hidden">
           <Withdraw balance={d.balance} path="/api/console/withdraw" whose="the shop’s" onClose={() => setPaying(false)} onDone={() => { void load(); void loadStats() }} />
@@ -738,29 +742,65 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
   )
 }
 
-function Hours({ hours, onSaved }: { hours: { open: string; close: string }; onSaved: () => void }) {
-  const [open, setOpen] = useState(hours.open)
-  const [close, setClose] = useState(hours.close)
-  const [note, setNote] = useState('')
-  const changed = open !== hours.open || close !== hours.close
+/** Who the shop is, where and when: what a customer reads on the shop's page before what it sells. */
+function About({ blurb, place, hours, venue, onSaved }: { blurb: string; place: string; hours: { open: string; close: string } | null; venue: boolean; onSaved: () => void }) {
+  const [text, setText] = useState(blurb)
+  const [where, setWhere] = useState(place)
+  const [timed, setTimed] = useState(venue || !!hours)
+  const [open, setOpen] = useState(hours?.open ?? '08:00')
+  const [close, setClose] = useState(hours?.close ?? '18:00')
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const changed = text !== blurb || where !== place || timed !== (venue || !!hours) || (timed && (open !== hours?.open || close !== hours?.close))
+  const field = 'mt-1 w-full rounded-2xl bg-fill px-4 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris'
   const cell = 'rounded-full bg-fill px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-iris'
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await api('/api/console/about', { body: { blurb: text.trim(), place: where.trim(), hours: timed ? { open, close } : null } })
+      setNote({ ok: true, text: 'Saved. Customers see this on your page.' })
+      onSaved()
+    } catch (err) {
+      setNote({ ok: false, text: (err as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <Card>
-      <h3 className="font-semibold">Gate hours, Nairobi time</h3>
-      <form
-        className="mt-2 flex flex-wrap items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          api('/api/console/hours', { body: { open, close } }).then(() => { setNote('Saved.'); onSaved() }).catch((err) => setNote(err.message))
-        }}
-      >
-        <input type="time" aria-label="Opens at" className={cell} value={open} onChange={(e) => setOpen(e.target.value)} />
-        <span className="text-sm text-soft">to</span>
-        <input type="time" aria-label="Closes at" className={cell} value={close} onChange={(e) => setClose(e.target.value)} />
-        <Button tone="dark" disabled={!changed} className="!px-4 !py-2 text-sm">Save hours</Button>
-      </form>
-      <p className="mt-2 text-xs text-soft">{note || 'Tickets are sold while you’re open and stop working at closing time. A ticket already sold keeps the closing time it was sold with.'}</p>
-    </Card>
+    <section className="space-y-3">
+      <h2 className="px-1 text-xl font-bold">About your shop</h2>
+      <Card>
+        <form onSubmit={save} className="space-y-4">
+          <label className="block text-sm font-medium">Who you are and what you offer
+            <textarea className={`${field} resize-none`} rows={3} maxLength={200} value={text} onChange={(e) => setText(e.target.value)} placeholder="A 30-hectare forest park in the city. Walking trails, picnic lawns and over 350 tree species." />
+            <span className="num mt-1 block text-right text-xs font-normal text-soft">{text.length} of 200</span>
+          </label>
+          <label className="block text-sm font-medium">Where customers find you
+            <input className={field} maxLength={120} value={where} onChange={(e) => setWhere(e.target.value)} placeholder="State House Road, Nairobi" />
+          </label>
+          <fieldset>
+            <legend className="text-sm font-medium">Opening hours, Nairobi time</legend>
+            {!venue && (
+              <label className="mt-1.5 flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />
+                Show opening hours on my page
+              </label>
+            )}
+            {timed && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input type="time" aria-label="Opens at" className={cell} value={open} onChange={(e) => setOpen(e.target.value)} />
+                <span className="text-sm text-soft">to</span>
+                <input type="time" aria-label="Closes at" className={cell} value={close} onChange={(e) => setClose(e.target.value)} />
+              </div>
+            )}
+            <p className="mt-2 text-xs text-soft">{venue ? 'Tickets are sold while you’re open and stop working at closing time. A ticket already sold keeps the closing time it was sold with.' : 'Shown to customers. Orders are still taken outside these hours.'}</p>
+          </fieldset>
+          <Button tone="dark" disabled={busy || !changed} className="!px-4 !py-2.5 text-sm">{busy ? 'Saving…' : 'Save'}</Button>
+          {note && <Notice tone={note.ok ? 'good' : 'bad'}>{note.text}</Notice>}
+        </form>
+      </Card>
+    </section>
   )
 }
 

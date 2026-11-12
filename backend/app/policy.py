@@ -88,6 +88,20 @@ def gate_now(hours: dict | None, now: datetime | None = None) -> Gate:
     return Gate(True, int(closes.timestamp() * 1000), f"Valid until {hours['close']} today.")
 
 
+def hours_line(hours: dict | None) -> str:
+    """Opening hours in a few words for a shop's page: 'Open now · closes 18:30'. Empty if the shop keeps none."""
+    if not hours or not hours.get("open") or not hours.get("close"):
+        return ""
+    if hours["open"] == "00:00" and hours["close"] == "23:59":
+        return "Open all day"
+    g = gate_now(hours)
+    if g.open:
+        return f"Open now · closes {hours['close']}"
+    tz = ZoneInfo(hours.get("tz") or "Africa/Nairobi")
+    before = datetime.now(tz).strftime("%H:%M") < hours["open"]
+    return f"Closed · opens {hours['open']}{'' if before else ' tomorrow'}"
+
+
 def discount_rules(rules: dict) -> list[dict]:
     """The owner's discount conditions. Each is a ceiling the agent may go up to, never past:
       {"kind": "total", "min_kes": 1000, "percent": 5}        orders of KES 1,000 or more

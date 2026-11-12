@@ -189,6 +189,9 @@ async def get_shop(near_id: str):
     gate = policy.gate_now(shop.hours)
     return {"near_id": shop.near_id, "name": shop.name, "blurb": shop.blurb, "place": shop.place,
             "kind": shop.kind, "hours": shop.hours, "open": gate.open, "gate_says": gate.says,
+            "hours_line": policy.hours_line(shop.hours),
+            # That a discount exists and for whom, so a customer's agent knows to ask. Never how much.
+            "discounts_for": sorted({policy.describe_rule(r) for r in policy.discount_rules(shop.rules or {})}),
             "verified": bool(await near.view("is_verified", {"account_id": near_id})),
             "items": [{k: i[k] for k in ("sku", "name", "price", "tags", "stock")} for i in items],
             "charges": await open_charges(near_id) if shop.kind == "counter" else [],
@@ -214,6 +217,15 @@ async def open_charges(shop_id: str) -> list[dict]:
                                                     Charge.created_at > datetime.now(UTC) - CHARGE_LIFE).order_by(Charge.created_at.desc()))
         return [{"id": c.id, "amount": fx.to_micro(c.amount_kes), "amount_kes": c.amount_kes, "note": c.note,
                  "at": c.created_at.isoformat(), "taken": bool(c.order_id)} for c in rows]
+
+
+@app.get("/api/shops/{near_id}/visits")
+async def my_visits(near_id: str, account: Account = Depends(customer_of)):
+    """How often the signed-in person has paid this shop."""
+    async with Session() as s:
+        n = await s.scalar(select(func.count()).select_from(Order).where(
+            Order.shop_near_id == near_id, Order.customer_near_id == account.near_id, Order.status == "paid"))
+    return {"times": n or 0}
 
 
 @app.get("/api/receipts/{invoice_id}")
@@ -439,7 +451,7 @@ class SpeakIn(BaseModel):
 
 
 @app.post("/api/voice/transcribe")
-async def voice_in(file: UploadFile, _: Account = Depends(customer_of)):
+async def voice_in(file: UploadFile, _: User = Depends(current_user)):
     """Turn a short recording into the text of a chat message. Nothing is sent to the agent here."""
     if not voice.enabled():
         raise HTTPException(404, "Voice isn't switched on.")
@@ -458,7 +470,7 @@ async def voice_in(file: UploadFile, _: Account = Depends(customer_of)):
 
 
 @app.post("/api/voice/speak")
-async def voice_out(body: SpeakIn, _: Account = Depends(customer_of)):
+async def voice_out(body: SpeakIn, _: User = Depends(current_user)):
     """Read a reply aloud. Only the first few sentences: long replies are for reading."""
     if not voice.enabled():
         raise HTTPException(404, "Voice isn't switched on.")
@@ -689,6 +701,8 @@ async def open_shop(body: ShopIn, user: User = Depends(current_user)):
     """The owner sets the shop up themselves. It stays pending until an admin approves it."""
     if body.kind == "venue" and body.hours is None:
         raise HTTPException(422, "Add the hours your gate is open.")
+    if body.hours and body.hours.open == body.hours.close:
+        raise HTTPException(422, "Opening and closing time can't be the same.")
     if body.kind != "counter" and not body.items:
         raise HTTPException(422, "Add at least one thing you sell.")
     hours = {**body.hours.model_dump(), "tz": "Africa/Nairobi"} if body.hours else None
@@ -792,6 +806,91 @@ async def remove_item(sku: str, account: Account = Depends(merchant_of)):
         await s.delete(item)
         await s.commit()
     return {"ok": True}
+
+
+class AboutIn(BaseModel):
+    blurb: str = Field(default="", max_length=200)
+    place: str = Field(default="", max_length=120)
+    hours: HoursIn | None = None  # a venue must keep hours; for others they are only shown to customers
+
+
+@app.post("/api/console/about")
+async def set_about(body: AboutIn, account: Account = Depends(merchant_of)):
+    """Who the shop is, where it is and when it is open: what a customer reads before what it sells."""
+    async with Session() as s:
+        shop = await s.get(Shop, account.near_id)
+        if shop.kind == "venue" and body.hours is None:
+            raise HTTPException(422, "A venue needs opening hours: tickets stop working at closing time.")
+        if body.hours and body.hours.open == body.hours.close:
+            raise HTTPException(422, "Opening and closing time can't be the same.")
+        shop.blurb, shop.place = " ".join(body.blurb.split()), body.place.strip()
+        shop.hours = {**body.hours.model_dump(), "tz": (shop.hours or {}).get("tz", "Africa/Nairobi")} if body.hours else None
+        await s.commit()
+    return {"ok": True}
+
+
+# ---- the owner asks the shop's agent
+
+
+@app.get("/api/console/chats")
+async def shop_chats(account: Account = Depends(merchant_of)):
+    return {"chats": await chat.threads(account.near_id), "agent": llm.mode_label(), "voice": voice.enabled()}
+
+
+@app.get("/api/console/chats/{thread_id}")
+async def shop_chat_history(thread_id: str, account: Account = Depends(merchant_of)):
+    return {"messages": await chat.history(account.near_id, thread_id)}
+
+
+@app.delete("/api/console/chats/{thread_id}")
+async def shop_chat_delete(thread_id: str, account: Account = Depends(merchant_of)):
+    if not await chat.remove(account.near_id, thread_id):
+        raise HTTPException(404, "That chat isn't this shop's.")
+    return {"ok": True}
+
+
+@app.post("/api/console/chat")
+async def shop_chat_turn(body: ChatIn, account: Account = Depends(merchant_of)):
+    """The owner asks the shop's agent about the business. It reads; it changes nothing."""
+    async def facts(day: date | None = None) -> dict:
+        if day:
+            st = await statement(day, account)
+            return {"day": st["day"], **{k: st["totals"][k] for k in ("sales_kes", "count", "refunds_kes", "refund_count", "net_kes", "people", "admitted", "refused")}}
+        return await shop_facts(account)
+
+    return sse(lambda emit: chat.run_shop(account, body.text.strip(), body.thread, emit, facts), busy_key="chat:" + account.near_id)
+
+
+async def shop_facts(account: Account) -> dict:
+    """What the shop's agent knows when the owner asks: money, sales, stock, subscribers, rules. All in shillings."""
+    con, st = await asyncio.gather(console(account), stats(account))
+    async with Session() as s:
+        waiting = await s.scalar(select(func.count()).select_from(Subscription).where(
+            Subscription.shop_near_id == account.near_id, Subscription.status == "needs_money")) or 0
+        refused = list(await s.scalars(select(AgentLog).where(AgentLog.shop_near_id == account.near_id, AgentLog.kind == "refused")
+                                       .order_by(AgentLog.at.desc()).limit(3)))
+    peak = max(range(24), key=lambda h: st["hours"][h])
+    week = st["days"][-7:]
+    return {
+        "shop": con["name"], "type": con["kind"], "verified": con["verified"], "hours": con["hours"], "open_now": con["open"],
+        "balance": policy.fmt(con["balance"]),
+        "set_aside": [{"to": x["account_id"].split(".")[0], "percent_of_each_sale": x["bps"] / 100, "balance": policy.fmt(x["balance"])} for x in con["splits"]],
+        "today": {"sales_kes": st["today"]["sales"], "sales": st["today"]["count"], "refunds_kes": st["today"]["refunds"]},
+        "yesterday": {"sales_kes": st["yesterday"]["sales"], "sales": st["yesterday"]["count"]},
+        "last_7_days": {"sales_kes": sum(d["sales"] for d in week), "sales": sum(d["count"] for d in week),
+                        "best_day": max(week, key=lambda d: d["sales"])["day"]},
+        "busiest_hour_today": f"{peak:02d}:00" if st["hours"][peak] else None,
+        "best_sellers_14_days": [{"name": t["name"], "sold": t["qty"], "kes": t["amount"]} for t in st["top"]],
+        "prices": [{"name": i["name"], "kes": i["price_kes"], **({} if con["kind"] == "venue" else {"in_stock": i["stock"]})} for i in con["items"]],
+        "low_stock": [i["name"] for i in con["items"] if con["kind"] == "food" and i["stock"] <= 5],
+        "plans": [{"name": p["name"], "kes": p["price_kes"], "billed": p["every"], "subscribers": p["subscribers"]} for p in con["plans"]],
+        "subscriptions_waiting_for_customer_money": waiting,
+        "discount_rules": [f"up to {d['percent']}% for {d['says']}" for d in con["discounts"]],
+        "latest_sales": [{"customer": o["customer"], "what": ", ".join(f"{x['qty']} x {x['name']}" for x in o["lines"] or []) or o["goal"],
+                          "kes": policy.shillings(o["total"]) if o["total"] else None, "status": o["status"]} for o in con["orders"][:6]],
+        "recent_refused_payments": [x.text for x in refused],
+        "recent_withdrawals": [{"amount": policy.fmt(m["amount"]), "as": f"{m['symbol']} on {m['chain']}"} for m in st["moves"][:3]],
+    }
 
 
 @app.post("/api/console/hours")
