@@ -1,0 +1,8 @@
+@import "../../shared/theme.css";
+
+/* The shop side's accent is pure blue. It marks the one main action on a card, the active choice and
+   keyboard focus. Everything else stays ink, grey and white, so the blue keeps its meaning. */
+@theme inline {
+  --color-iris: #0000ff;
+  --color-iris-deep: #0000c8;
+}

@@ -1,0 +1,49 @@
+@import "../../shared/theme.css";
+
+/* Behind everything, fixed to the screen: two soft colour washes and a scatter of outline shapes.
+   It is there to be noticed once and then ignored, so it stays faint and never moves. */
+/* The page colour sits on <html>; the body is clear so the backdrop behind it shows. */
+body { background: transparent; }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='520' fill='none' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='.13'%3E%3Cpath transform='translate(436 431) rotate(231)' stroke='%230b8f61' d='M-16 5 -6 -5 6 5 16 -5'/%3E%3Crect transform='translate(409 248) rotate(48)' stroke='%23c2570c' x='-7' y='-7' width='13' height='13' rx='3'/%3E%3Ccircle transform='translate(86 279) rotate(304)' stroke='%23c2570c' r='9'/%3E%3Crect transform='translate(334 315) rotate(319)' stroke='%234f46ff' x='-10' y='-10' width='19' height='19' rx='4'/%3E%3Cpath transform='translate(54 41) rotate(307)' stroke='%234f46ff' d='M0 -14V14M-14 0H14'/%3E%3Cpath transform='translate(177 304) rotate(265)' stroke='%230b8f61' d='M0 -11V11M-11 0H11'/%3E%3Cpath transform='translate(260 339) rotate(335)' stroke='%230c0e12' d='M-13 4 -5 -4 5 4 13 -4'/%3E%3Cpath transform='translate(499 498) rotate(130)' stroke='%230c0e12' d='M0 -13 12 9 -12 9Z'/%3E%3Cpath transform='translate(266 30) rotate(205)' stroke='%234f46ff' d='M0 -9 8 6 -8 6Z'/%3E%3Ccircle transform='translate(205 483) rotate(109)' stroke='%230b8f61' r='9'/%3E%3Cpath transform='translate(245 497) rotate(214)' stroke='%234f46ff' d='M0 -7 5 0 0 7 -5 0Z'/%3E%3Cpath transform='translate(321 391) rotate(172)' stroke='%234f46ff' d='M-16 0A16 16 0 0 1 16 0'/%3E%3Ccircle transform='translate(79 362) rotate(30)' stroke='%23c2570c' r='6'/%3E%3Cpath transform='translate(220 203) rotate(215)' stroke='%230b8f61' d='M0 -9 7 0 0 9 -7 0Z'/%3E%3Cpath transform='translate(146 493) rotate(10)' stroke='%230b8f61' d='M-7 0A7 7 0 0 1 7 0'/%3E%3Cpath transform='translate(208 434) rotate(21)' stroke='%230b8f61' d='M0 -9 8 6 -8 6Z'/%3E%3Cpath transform='translate(179 164) rotate(38)' stroke='%234f46ff' d='M0 -16 15 11 -15 11Z'/%3E%3Crect transform='translate(301 134) rotate(190)' stroke='%23c2570c' x='-11' y='-4' width='22' height='8' rx='4'/%3E%3Crect transform='translate(485 252) rotate(197)' stroke='%230b8f61' x='-7' y='-7' width='13' height='13' rx='3'/%3E%3Cpath transform='translate(142 114) rotate(351)' stroke='%23c2570c' d='M0 -14V14M-14 0H14'/%3E%3Cpath transform='translate(310 222) rotate(55)' stroke='%234f46ff' d='M0 -13 12 9 -12 9Z'/%3E%3Cpath transform='translate(478 137) rotate(131)' stroke='%23c2570c' d='M0 -16 12 0 0 16 -12 0Z'/%3E%3Cpath transform='translate(256 269) rotate(64)' stroke='%230b8f61' d='M0 -16 15 11 -15 11Z'/%3E%3Cpath transform='translate(59 124) rotate(8)' stroke='%234f46ff' d='M0 -14V14M-14 0H14'/%3E%3Crect transform='translate(100 195) rotate(47)' stroke='%230c0e12' x='-5' y='-5' width='11' height='11' rx='2'/%3E%3Crect transform='translate(452 495) rotate(302)' stroke='%234f46ff' x='-7' y='-7' width='13' height='13' rx='3'/%3E%3Cpath transform='translate(485 27) rotate(246)' stroke='%234f46ff' d='M0 -10 10 7 -10 7Z'/%3E%3Crect transform='translate(458 377) rotate(174)' stroke='%230c0e12' x='-5' y='-5' width='11' height='11' rx='2'/%3E%3Cpath transform='translate(351 458) rotate(15)' stroke='%23c2570c' d='M0 -7 5 0 0 7 -5 0Z'/%3E%3Cpath transform='translate(31 337) rotate(298)' stroke='%234f46ff' d='M0 -16 12 0 0 16 -12 0Z'/%3E%3Crect transform='translate(504 448) rotate(198)' stroke='%23c2570c' x='-9' y='-3' width='18' height='6' rx='3'/%3E%3Cpath transform='translate(378 38) rotate(246)' stroke='%234f46ff' d='M0 -16 15 11 -15 11Z'/%3E%3Cpath transform='translate(484 70) rotate(130)' stroke='%234f46ff' d='M-11 3 -4 -3 4 3 11 -3'/%3E%3Crect transform='translate(269 384) rotate(337)' stroke='%23c2570c' x='-11' y='-4' width='22' height='8' rx='4'/%3E%3C/svg%3E") 0 0 / 520px 520px,
+    radial-gradient(60rem 40rem at 0% 0%, rgb(79 70 255 / 0.13), transparent 60%),
+    radial-gradient(55rem 40rem at 100% 100%, rgb(11 143 97 / 0.12), transparent 60%),
+    var(--color-canvas);
+}
+
+/* The column the app lives in: a frosted sheet that scrolls inside itself, so its header and the
+   floating nav stay still. On a phone it is the whole screen. */
+.panel {
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgb(243 244 246 / 0.74);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  scrollbar-width: none;
+}
+.panel::-webkit-scrollbar { display: none; }
+.panel > * { flex-shrink: 0; }
+/* The home screen is a frame that does not scroll: header and balance stay at the top, the nav at the
+   bottom, and only .scroll moves. (A blurred element also anchors "fixed" children to itself, so the
+   nav and sheets sit inside the frame.) */
+.panel.frame { overflow: hidden; position: relative; }
+.panel > .scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.panel > .scroll::-webkit-scrollbar { display: none; }
+@media (min-width: 640px) {
+  .panel {
+    height: calc(100dvh - 1.5rem);
+    margin-top: 0.75rem;
+    border-radius: 32px;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7), 0 20px 50px rgb(12 14 18 / 0.08);
+  }
+}
+@media print {
+  body::before { display: none; }
+  .panel { height: auto; overflow: visible; background: none; box-shadow: none; }
+}

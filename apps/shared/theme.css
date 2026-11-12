@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@source ".";
+
+@theme inline {
+  --color-canvas: #f3f4f6;   /* page */
+  --color-card: #ffffff;     /* surfaces */
+  --color-ink: #0c0e12;      /* text */
+  --color-soft: #6b7280;     /* secondary text */
+  --color-line: #e7e9ee;     /* hairlines */
+  --color-fill: #eceef2;     /* quiet fills: chips, inputs, shop bubbles */
+  --color-iris: #4f46ff;     /* the one accent: actions */
+  --color-iris-deep: #3d35e0;
+  --color-tick: #0000ff;     /* the verified checkmark, the same in both apps */
+  --color-good: #0b8f61;     /* paid, verified */
+  --color-good-wash: #e6f5ee;
+  --color-bad: #d92d3a;      /* refused */
+  --color-bad-wash: #fdeced;
+  --color-amber: #c2570c;    /* expired tickets */
+  --color-amber-wash: #fdf0e3;
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;            /* text and figures */
+  --font-display: "Bricolage Grotesque", "Geist", system-ui, sans-serif;            /* headings only */
+}
+
+html { background: var(--color-canvas); }
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 0, "ss01" 1;
+  letter-spacing: -0.005em;
+}
+.num { font-variant-numeric: tabular-nums; }
+h1, h2 { font-family: var(--font-display); letter-spacing: -0.025em; }
+h3 { letter-spacing: -0.01em; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--color-iris); outline-offset: 2px; }
+
+/* Paper slip with a torn bottom edge: each 12px tile is a wedge opening upward from the bottom. */
+.slip {
+  background: var(--color-card);
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 12px 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 12px 100%;
+  padding-bottom: 22px;
+}
+.slip .cut { border-top: 1.5px dashed var(--color-line); }
+.slip-shadow { filter: drop-shadow(0 8px 24px rgb(12 14 18 / 0.08)); }
+
+@keyframes print { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
+.print { animation: print 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 0.22s ease-out both; }
+@keyframes pulse3 { 50% { opacity: 0.25; } }
+.dots i { display: inline-block; width: 6px; height: 6px; margin: 0 2px; border-radius: 50%; background: var(--color-soft); animation: pulse3 1s infinite; }
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+/* A band of light crossing a live ticket: a screenshot has none. */
+@keyframes sweep { from { transform: translateX(-120%) skewX(-18deg); } to { transform: translateX(320%) skewX(-18deg); } }
+.sweep { animation: sweep 3.2s ease-in-out infinite; }
+@keyframes turn { to { transform: rotate(360deg); } }
+.turn { transform-origin: 50% 50%; animation: turn 60s linear infinite; }
+/* A row that opens in place: the content's height animates from nothing, and what follows slides down. */
+.reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.reveal.open { grid-template-rows: 1fr; }
+.reveal > div { overflow: hidden; min-height: 0; }
+@keyframes glow { 50% { opacity: 0.45; } }
+.skeleton { border-radius: 12px; background: var(--color-fill); animation: glow 1.2s ease-in-out infinite; }
+/* A sheet that comes up from the bottom edge, as on a phone. */
+@keyframes sheet { from { transform: translateY(100%); } to { transform: none; } }
+.sheet { animation: sheet 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.8s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .print, .rise, .dots i, .spin, .sweep, .turn, .skeleton, .sheet { animation: none; }
+  .reveal { transition: none; }
+}

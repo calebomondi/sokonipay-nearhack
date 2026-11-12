@@ -1,0 +1,26 @@
+# build
+target/
+node_modules/
+.next/
+out/
+dist/
+*.wasm
+!res/*.wasm
+
+# secrets — keys live in env vars / ~/.near-credentials, never here
+.env
+.env.*
+!.env.example
+*.pem
+neardev/
+
+# submission payload contains personal data
+submission*.json
+
+.DS_Store
+
+# python
+.venv/
+__pycache__/
+.pytest_cache/
+*.tsbuildinfo

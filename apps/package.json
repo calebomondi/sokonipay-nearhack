@@ -1,0 +1,10 @@
+{
+  "name": "sokonipay-apps",
+  "private": true,
+  "workspaces": ["customer", "merchant"],
+  "scripts": {
+    "dev:customer": "npm run dev -w customer",
+    "dev:merchant": "npm run dev -w merchant",
+    "build": "npm run build -w customer && npm run build -w merchant"
+  }
+}

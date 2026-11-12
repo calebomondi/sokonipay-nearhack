@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-dye: #1b1650;      /* indigo cloth: page */
+  --color-well: #120e3a;     /* recessed areas */
+  --color-cloth: #272065;    /* raised surfaces */
+  --color-seam: #3b3391;     /* borders */
+  --color-chalk: #f1eeff;    /* text */
+  --color-haze: #aaa4d8;     /* secondary text */
+  --color-marigold: #ffb627; /* actions */
+  --color-leaf: #4ade9b;     /* verified, paid */
+  --color-hibiscus: #ff6b81; /* refused */
+  --color-paper: #fbf6e9;    /* receipts */
+  --color-ink: #1b1650;      /* text on paper */
+  --font-display: var(--font-bricolage);
+  --font-sans: var(--font-instrument);
+}
+
+html { background: var(--color-dye); color-scheme: dark; }
+body {
+  background: var(--color-dye);
+  color: var(--color-chalk);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, .display { font-family: var(--font-display), system-ui, sans-serif; letter-spacing: -0.02em; }
+.num { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--color-marigold); outline-offset: 2px; border-radius: 6px; }
+
+/* Kanga border: the dotted edge printed along a kanga cloth. Used on the shop code and the landing edge only. */
+.pindo {
+  background-color: var(--color-marigold);
+  background-image:
+    radial-gradient(circle at 12px 12px, var(--color-dye) 4px, transparent 4.5px),
+    radial-gradient(circle at 0 0, var(--color-dye) 2px, transparent 2.5px),
+    radial-gradient(circle at 24px 24px, var(--color-dye) 2px, transparent 2.5px);
+  background-size: 24px 24px;
+}
+
+/* Paper receipt with a torn bottom edge. */
+.receipt {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  /* Each 14px tile is a wedge opening upward from a point on the bottom edge: a saw-tooth tear. */
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+  padding-bottom: 22px;
+}
+.receipt .rule { border-top: 1.5px dashed color-mix(in srgb, var(--color-ink) 35%, transparent); }
+
+@keyframes print { from { clip-path: inset(0 0 100% 0); transform: translateY(-8px); } to { clip-path: inset(0); transform: none; } }
+.print { animation: print 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.arrive { animation: arrive 0.25s ease-out both; }
+@keyframes blink { 50% { opacity: 0.25; } }
+.thinking span { animation: blink 1s infinite; }
+.thinking span:nth-child(2) { animation-delay: 0.2s; }
+.thinking span:nth-child(3) { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .print, .arrive, .thinking span { animation: none; }
+}
