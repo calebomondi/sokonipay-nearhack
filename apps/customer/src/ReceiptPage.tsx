@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 import { api, type ReceiptData } from '@shared/api'
 import { Receipt } from '@shared/Receipt'
 import { TicketPass } from '@shared/TicketPass'
-import { Notice, Spinner, fmt } from '@shared/ui'
+import { Notice, Spinner, fmt, Logo } from '@shared/ui'
 
 /** Read straight from the contract, so anyone with the link can check a receipt. No sign-in needed. */
 export default function ReceiptPage() {
@@ -19,7 +19,7 @@ export default function ReceiptPage() {
   }, [id])
   return (
     <main className="mx-auto flex panel w-full max-w-md flex-col gap-5 px-4 py-5">
-      <Link to="/" className="w-fit rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line">SokoniPay</Link>
+      <Link to="/" aria-label="SokoniPay home" className="w-fit rounded-full bg-fill px-2.5 py-1.5 hover:bg-line"><Logo size={26} /></Link>
       {error && !r ? <Notice>{error}</Notice> : !r ? <div className="flex justify-center py-10"><Spinner /></div> : r.status === 'Paid' ? (
         r.kind === 'Ticket' ? <TicketPass r={r} /> : <Receipt r={r} />
       ) : (

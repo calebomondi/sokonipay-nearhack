@@ -650,3 +650,40 @@ fn subscription_bills_still_obey_the_agent_limits() {
     ctx(&alice(), 0, 3_000);
     c.pay_invoice("sub-1".into());
 }
+
+#[test]
+fn shop_moves_its_savings_back_to_its_balance() {
+    let mut c = setup();
+    let savings = acc(&format!("savings.{}", shop()));
+    ctx(&shop(), 1, 1);
+    c.set_revenue_split(vec![Split { account_id: savings.clone(), bps: 2000 }]);
+    invoice(&mut c, &shop(), "ord-1", 10 * USD, InvoiceKind::Single);
+    ctx(&alice(), 0, 2);
+    c.pay_invoice("ord-1".into());
+    assert_eq!((bal(&c, &shop()), bal(&c, &savings)), (8 * USD, 2 * USD));
+    ctx(&shop(), 1, 3);
+    assert_eq!(c.sweep(savings.clone()).0, 2 * USD);
+    assert_eq!((bal(&c, &shop()), bal(&c, &savings)), (10 * USD, 0));
+}
+
+#[test]
+#[should_panic(expected = "only your own sub-accounts")]
+fn nobody_else_can_move_a_shops_savings() {
+    let mut c = setup();
+    let savings = acc(&format!("savings.{}", shop()));
+    ctx(&shop(), 1, 1);
+    c.set_revenue_split(vec![Split { account_id: savings.clone(), bps: 2000 }]);
+    invoice(&mut c, &shop(), "ord-1", 10 * USD, InvoiceKind::Single);
+    ctx(&alice(), 0, 2);
+    c.pay_invoice("ord-1".into());
+    ctx(&alice(), 1, 3);
+    c.sweep(savings);
+}
+
+#[test]
+#[should_panic(expected = "Requires attached deposit of exactly 1 yoctoNEAR")]
+fn agent_key_cannot_move_savings() {
+    let mut c = setup();
+    ctx(&shop(), 0, 3);
+    c.sweep(acc(&format!("savings.{}", shop())));
+}

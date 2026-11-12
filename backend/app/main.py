@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -22,7 +22,7 @@ from app import accounts, chat, fx, intents, near, orders, policy, presence, sub
 from app.agents import llm
 from app.auth import User, current_user
 from app.config import settings
-from app.db import Account, AgentLog, Charge, Deposit, Item, Order, Plan, Session, Shop, Subscription, init_db, log, ms
+from app.db import Account, AgentLog, Charge, Deposit, Item, Order, Plan, Session, Shop, Subscription, init_db, log, ms, utc
 
 
 @asynccontextmanager
@@ -105,10 +105,12 @@ async def customer_of(user: User = Depends(current_user)) -> Account:
     return account
 
 
-async def merchant_of(user: User = Depends(current_user)) -> Account:
-    account = await accounts.get(user.id, "merchant")
-    if account is None or not account.ready:
-        raise HTTPException(409, "Open your shop first.")
+async def merchant_of(user: User = Depends(current_user), x_shop: str | None = Header(default=None)) -> Account:
+    """The shop this request is about: the one named in the X-Shop header, or the person's first."""
+    mine = [a for a in await accounts.shops_of(user.id) if a.ready]
+    account = next((a for a in mine if a.near_id == x_shop), None) if x_shop else (mine[0] if mine else None)
+    if account is None:
+        raise HTTPException(409, "Open your shop first." if not mine else "That shop isn't yours.")
     return account
 
 
@@ -258,7 +260,16 @@ async def order_summary(order_id: str):
 async def me(user: User = Depends(current_user)):
     return {"user": {"name": user.name, "email": user.email}, "is_admin": (user.email or "").lower() in settings.admins,
             "customer": public(await accounts.get(user.id, "customer")),
-            "merchant": public(await accounts.get(user.id, "merchant"))}
+            "merchant": public(await accounts.get(user.id, "merchant")),
+            "shops": await my_shops(user)}
+
+
+async def my_shops(user: User) -> list[dict]:
+    mine = await accounts.shops_of(user.id)
+    async with Session() as s:
+        rows = {x.near_id: x for x in await s.scalars(select(Shop).where(Shop.near_id.in_([a.near_id for a in mine])))}
+    return [{"near_id": a.near_id, "name": a.name, "ready": a.ready, "kind": rows[a.near_id].kind if a.near_id in rows else "food",
+             "status": rows[a.near_id].status if a.near_id in rows else "pending"} for a in mine]
 
 
 # ---------------------------------------------------------------- customer app
@@ -500,7 +511,7 @@ async def _credit(deposit_id: str, account: Account, amount: int) -> Deposit:
 
 
 @app.get("/api/funding/options")
-async def funding_options(_: Account = Depends(customer_of)):
+async def funding_options(_: User = Depends(current_user)):
     """Chains, with the stablecoins NEAR Intents accepts on each."""
     try:
         return {"chains": await intents.chains(), "live": bool(settings.intents_treasury),
@@ -526,7 +537,7 @@ class PayoutIn(BaseModel):
 
 
 @app.post("/api/funding/payout-quote")
-async def payout_quote(body: PayoutIn, _: Account = Depends(customer_of)):
+async def payout_quote(body: PayoutIn, _: User = Depends(current_user)):
     """A live price from NEAR Intents for taking money out as a chosen coin on a chosen chain."""
     try:
         return await intents.payout_quote(body.asset_id, body.amount)
@@ -684,6 +695,8 @@ async def open_shop(body: ShopIn, user: User = Depends(current_user)):
     try:
         return public(await accounts.setup_shop(user, body.kind, body.name.strip(), body.place.strip(), body.blurb.strip(),
                                                 hours, [i.model_dump() for i in body.items]))
+    except accounts.TooManyShops:
+        raise HTTPException(422, f"You can have up to {accounts.MAX_SHOPS} shops on one account.") from None
     except near.ContractError as e:
         raise setup_error(e) from e
 
@@ -691,11 +704,11 @@ async def open_shop(body: ShopIn, user: User = Depends(current_user)):
 @app.post("/api/shop/resume")
 async def resume_shop(user: User = Depends(current_user)):
     """Finish a shop setup that stopped half-way."""
-    account = await accounts.get(user.id, "merchant")
+    account = next((a for a in await accounts.shops_of(user.id) if not a.ready), None)
     if account is None:
-        raise HTTPException(404, "You haven't started a shop yet.")
+        raise HTTPException(404, "There is no unfinished shop setup.")
     try:
-        return public(account if account.ready else await accounts._finish(account))
+        return public(await accounts._finish(account))
     except near.ContractError as e:
         raise setup_error(e) from e
 
@@ -930,6 +943,97 @@ async def cancel_charge(charge_id: str, account: Account = Depends(merchant_of))
         c.status = "cancelled"
         await s.commit()
     return {"ok": True}
+
+
+# ---- the shop's money
+
+
+@app.post("/api/console/withdraw")
+async def shop_withdraw(body: PayoutIn, account: Account = Depends(merchant_of)):
+    """Take money out of the shop's balance. Signed with the owner's full key: the shop's agent can't withdraw.
+    On testnet the quote is real but no coins are sent on the other chain."""
+    if not body.address:
+        raise HTTPException(422, "Add the address the coins should go to.")
+    if body.amount > int(await near.view("get_balance", {"account_id": account.near_id})):
+        raise HTTPException(422, "That is more than the shop's balance.")
+    try:
+        q = await intents.payout_quote(body.asset_id, body.amount)
+    except intents.IntentsError as e:
+        raise HTTPException(422, str(e)) from e
+    try:
+        await near.refill_gas(account.near_id)
+        sent = await near.withdraw(account.near_id, accounts.full_key(account), body.amount)
+    except near.ContractError as e:
+        raise HTTPException(502, f"NEAR did not complete the withdrawal: {e.reason}.") from e
+    if sent.value is False:
+        raise HTTPException(502, "The withdrawal didn't go through. The balance is unchanged.")
+    d = Deposit(id="w-" + secrets.token_hex(6), customer_near_id=account.near_id, mode="out", chain=q["chain"], symbol=q["symbol"],
+                asset_id=body.asset_id, send=q["receive"], expected=body.amount, seconds=q["seconds"],
+                deposit_address=body.address.strip(), status="done", credited=body.amount, tx_hash=sent.tx_hash)
+    async with Session() as s:
+        s.add(d)
+        await s.commit()
+    await log(account.near_id, "info", f"The owner withdrew {policy.fmt(body.amount)}, priced as {q['receive']} {q['symbol']} on {q['chain_name']}.", sent.tx_hash)
+    return deposit_view(d)
+
+
+class SweepIn(BaseModel):
+    account_id: str = Field(min_length=3, max_length=64)
+
+
+@app.post("/api/console/sweep")
+async def sweep(body: SweepIn, account: Account = Depends(merchant_of)):
+    """Move a share the contract set aside (savings, or a partner account under this shop) back to the shop's balance."""
+    try:
+        sent = await near.call(account.near_id, accounts.full_key(account), "sweep", {"from": body.account_id}, deposit=near.ONE_YOCTO)
+    except near.ContractError as e:
+        raise HTTPException(422, f"Not moved: {e.reason}.") from e
+    moved = int(sent.value or 0)
+    await log(account.near_id, "info", f"The owner moved {policy.fmt(moved)} from {body.account_id.split('.')[0]} to the shop's balance.", sent.tx_hash)
+    return {"ok": True, "moved": moved, "tx_hash": sent.tx_hash}
+
+
+@app.get("/api/console/stats")
+async def stats(account: Account = Depends(merchant_of)):
+    """Figures for the console's charts: the last 14 days, today by the hour, and what sells."""
+    async with Session() as s:
+        shop = await s.get(Shop, account.near_id)
+        tz = ZoneInfo((shop.hours or {}).get("tz", "Africa/Nairobi"))
+        today = datetime.now(tz).date()
+        since = datetime.combine(today - timedelta(days=13), clock.min, tz).astimezone(UTC)
+        mine = Order.shop_near_id == account.near_id
+        sold = list(await s.scalars(select(Order).where(mine, Order.paid_at >= since)))
+        back = list(await s.scalars(select(Order).where(mine, Order.refunded_at >= since)))
+        moves = list(await s.scalars(select(Deposit).where(Deposit.customer_near_id == account.near_id, Deposit.mode == "out")
+                                     .order_by(Deposit.created_at.desc()).limit(8)))
+
+    def kes(o: Order) -> int:
+        return round(fx.to_kes(o.total or 0, (o.settled or {}).get("rate")))
+
+    days = {today - timedelta(days=n): {"sales": 0, "refunds": 0, "count": 0} for n in range(13, -1, -1)}
+    hours = [0] * 24
+    items: dict[str, dict] = {}
+    for o in sold:
+        at = utc(o.paid_at).astimezone(tz)
+        if at.date() in days:
+            days[at.date()]["sales"] += kes(o)
+            days[at.date()]["count"] += 1
+        if at.date() == today:
+            hours[at.hour] += kes(o)
+        if o.status == "paid":
+            for line in o.lines or []:
+                it = items.setdefault(line["name"], {"name": line["name"], "qty": 0, "amount": 0})
+                it["qty"] += line["qty"]
+                it["amount"] += round(fx.to_kes(line["qty"] * line["unit_price"], (o.settled or {}).get("rate")))
+    for o in back:
+        at = utc(o.refunded_at).astimezone(tz)
+        if at.date() in days:
+            days[at.date()]["refunds"] += kes(o)
+    series = [{"day": d.isoformat(), **v} for d, v in days.items()]
+    return {"days": series, "hours": hours, "today": series[-1], "yesterday": series[-2],
+            "top": sorted(items.values(), key=lambda x: -x["amount"])[:6],
+            "moves": [{"id": d.id, "amount": d.credited, "at_ms": ms(d.created_at), "symbol": d.symbol,
+                       "chain": intents.CHAINS.get(d.chain, d.chain.title())} for d in moves]}
 
 
 class RefundIn(BaseModel):

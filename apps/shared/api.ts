@@ -10,9 +10,13 @@ export class ApiError extends Error {
   }
 }
 
+// The merchant console works on one shop at a time. Naming it here sends it with every request.
+let shop: string | null = null
+export const setShop = (nearId: string | null) => { shop = nearId }
+
 async function headers(json: boolean): Promise<HeadersInit> {
   const token = await accessToken()
-  return { ...(json ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+  return { ...(json ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(shop ? { 'X-Shop': shop } : {}) }
 }
 
 async function fail(res: Response): Promise<never> {
@@ -75,7 +79,9 @@ export type Line = { sku: string; name: string; qty: number; unit_price: number 
 export type Payer = { id: string; name: string; amount: number }
 export type Limits = { per_payment: number; per_day: number; spent_in_window: number }
 export type PublicAccount = { near_id: string; name: string; role: string; ready: boolean }
-export type Me = { user: { name: string | null; email: string | null }; is_admin: boolean; customer: PublicAccount | null; merchant: PublicAccount | null }
+export type Me = { user: { name: string | null; email: string | null }; is_admin: boolean; customer: PublicAccount | null; merchant: PublicAccount | null
+  shops: { near_id: string; name: string; ready: boolean; kind: string; status: string }[]
+}
 
 export type Ev =
   | { t: 'status'; text: string; ok?: boolean }

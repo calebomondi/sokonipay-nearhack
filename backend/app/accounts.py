@@ -35,7 +35,20 @@ def slug(text: str, fallback: str) -> str:
 
 async def get(user_id: uuid.UUID, role: str) -> Account | None:
     async with Session() as s:
-        return await s.scalar(select(Account).where(Account.user_id == user_id, Account.role == role))
+        return await s.scalar(select(Account).where(Account.user_id == user_id, Account.role == role).order_by(Account.created_at))
+
+
+class TooManyShops(Exception):
+    pass
+
+
+MAX_SHOPS = 5  # each one is a NEAR account we pay to create
+
+
+async def shops_of(user_id: uuid.UUID) -> list[Account]:
+    """Every shop a person owns, oldest first."""
+    async with Session() as s:
+        return list(await s.scalars(select(Account).where(Account.user_id == user_id, Account.role == "merchant").order_by(Account.created_at)))
 
 
 async def by_near_id(near_id: str) -> Account | None:
@@ -115,8 +128,11 @@ async def setup_shop(user: User, kind: str, name: str, place: str, blurb: str, h
     """Opens a shop with what the owner entered: a NEAR account, on the onchain register (unverified),
     an agent key with limits. It stays pending, and invisible to customers, until an admin approves it."""
     async with _locks.setdefault((user.id, "merchant"), asyncio.Lock()):
-        account = await get(user.id, "merchant")
+        mine = await shops_of(user.id)
+        account = next((a for a in mine if not a.ready), None)  # a setup that stopped half-way is finished first
         if account is None:
+            if len(mine) >= MAX_SHOPS:
+                raise TooManyShops
             account = await _create(user, "merchant", name, name)
             async with Session() as s:
                 s.add(Shop(near_id=account.near_id, name=name[:80], blurb=blurb[:200], place=place[:120], kind=kind,

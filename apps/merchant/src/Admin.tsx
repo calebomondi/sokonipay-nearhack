@@ -2,7 +2,7 @@ import { Profile } from '@shared/Profile'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '@shared/api'
-import { Button, Card, EXPLORER_ACCOUNT, Notice, Spinner, fmt, when } from '@shared/ui'
+import { Button, Card, EXPLORER_ACCOUNT, Notice, Spinner, fmt, when, Logo } from '@shared/ui'
 
 type Data = {
   shops: { near_id: string; name: string; kind: string; place: string; status: string; hours: { open: string; close: string } | null; verified_onchain: boolean; owner: string | null; created_at: string }[]
@@ -43,7 +43,7 @@ export default function Admin() {
     <main className="mx-auto w-full max-w-6xl space-y-5 px-5 pb-12 pt-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-soft">SokoniPay</p>
+          <Logo size={30} />
           <h1 className="text-4xl font-extrabold tracking-tight">Admin</h1>
         </div>
         <div className="flex items-center gap-2">

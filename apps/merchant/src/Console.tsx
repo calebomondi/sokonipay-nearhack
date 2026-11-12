@@ -1,10 +1,12 @@
-import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { api, type Limits, type Line, type Ticket } from '@shared/api'
 import { Profile } from '@shared/Profile'
 import { Scanner } from '@shared/Scanner'
-import { Button, Card, EXPLORER_ACCOUNT, Meter, Money, Notice, Spinner, Tick, TxLink, fmt, when } from '@shared/ui'
+import { Button, Card, EXPLORER_ACCOUNT, Meter, Money, Notice, Spinner, Tick, TxLink, fmt, when, Logo, ShopIcon, shopLook, usd } from '@shared/ui'
+import Withdraw from '@shared/Withdraw'
+import { DaysChart, HoursChart, TopItems, type Day } from './Charts'
+import { ShopCode } from './ShopCode'
 
 type Item = { sku: string; name: string; price: number; price_kes: number; tags: string[]; stock: number; reorder_at: number; restock_qty: number }
 type OrderRow = { id: string; customer: string; party_size: number; goal: string; mode: string; status: string; invoice_id: string | null; kind: string | null; total: number | null; lines: Line[] | null; agents: string; at: string }
@@ -33,7 +35,14 @@ const STATUS: Record<string, { text: string; cls: string }> = {
   failed: { text: 'Not completed', cls: 'bg-fill text-soft' },
 }
 
-export default function Console({ isAdmin }: { isAdmin: boolean }) {
+type ShopRef = { near_id: string; name: string; kind: string; status: string }
+type Stats = { days: Day[]; hours: number[]; today: Day; yesterday: Day; top: { name: string; qty: number; amount: number }[]
+  moves: { id: string; amount: number; at_ms: number; symbol: string; chain: string }[] }
+
+export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean; shops: ShopRef[]; onSwitch: (nearId: string) => void }) {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [paying, setPaying] = useState(false) // the withdraw sheet
+  const [moving, setMoving] = useState<string | null>(null)
   const [d, setD] = useState<Data | null>(null)
   const [error, setError] = useState('')
   const [refunding, setRefunding] = useState<string | null>(null)
@@ -52,11 +61,29 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
       .catch((e) => { if (mine === asked.current) setError(e.message) })
       .finally(() => { flying.current-- })
   }, [])
+  const loadStats = useCallback(() => api<Stats>('/api/console/stats').then(setStats).catch(() => {}), [])
   useEffect(() => {
     load()
+    loadStats()
     const t = setInterval(() => load(true), 4000)
-    return () => clearInterval(t)
-  }, [load])
+    const u = setInterval(loadStats, 30_000)
+    return () => { clearInterval(t); clearInterval(u) }
+  }, [load, loadStats])
+
+  // A share the contract set aside under this shop (savings) goes back to the main balance.
+  const sweep = async (accountId: string) => {
+    if (moving) return
+    setMoving(accountId)
+    try {
+      await api('/api/console/sweep', { body: { account_id: accountId } })
+      setError('')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setMoving(null)
+      void load()
+    }
+  }
 
   const refund = async (o: OrderRow) => {
     if (refunding || !window.confirm(`Give ${fmt(o.total ?? 0)} back to ${o.customer}? This can’t be undone.`)) return
@@ -121,11 +148,11 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="min-h-dvh">
-      {/* The bar that stays: who you are, where you are in the console, and your account. */}
-      <div className="sticky top-0 z-20 border-b border-line bg-card/90 backdrop-blur print:hidden">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3">
-          <p className="flex items-center gap-2 font-bold"><span className="h-2.5 w-2.5 rounded-full bg-iris" aria-hidden />SokoniPay <span className="font-medium text-soft">for shops</span></p>
-          <nav aria-label="Console sections" className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto md:flex-1">
+      {/* A floating bar that stays in view: the mark, the sections as a pill, the shop you are in, your account. */}
+      <div className="sticky top-3 z-20 px-3 print:hidden">
+        <div className="frost mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 rounded-[28px] px-3 py-2 shadow-[0_10px_30px_rgb(12_14_18/0.10)] ring-1 ring-line md:rounded-full">
+          <Logo size={34} />
+          <nav aria-label="Console sections" className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto md:flex-1 md:justify-center [scrollbar-width:none]">
             {tabs.map(([id, text]) => (
               <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}
                 className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${tab === id ? 'bg-ink text-white' : 'text-soft hover:bg-fill hover:text-ink'}`}>{text}</button>
@@ -133,11 +160,14 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
             <Link to="/statement" className="shrink-0 rounded-full px-3.5 py-2 text-sm font-medium text-soft hover:bg-fill hover:text-ink">Daily statement</Link>
             {isAdmin && <Link to="/admin" className="shrink-0 rounded-full px-3.5 py-2 text-sm font-medium text-soft hover:bg-fill hover:text-ink">Admin</Link>}
           </nav>
-          <div className="ml-auto"><Profile name={d.name} nearId={d.near_id} align="right" items={[{ label: 'Open the customer app', href: CUSTOMER_APP }]} /></div>
+          <div className="ml-auto flex items-center gap-2">
+            <Switcher shops={shops} current={d.near_id} onSwitch={onSwitch} />
+            <Profile name={d.name} nearId={d.near_id} align="right" items={[{ label: 'Open the customer app', href: CUSTOMER_APP }]} />
+          </div>
         </div>
       </div>
 
-      <main className="mx-auto w-full max-w-7xl space-y-6 px-5 pb-14 pt-7">
+      <main className="mx-auto w-full max-w-7xl space-y-6 px-5 pb-14 pt-9">
         <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
           <div>
             <h1 className="text-4xl font-extrabold leading-tight tracking-tight">{d.name} {d.verified && <Tick size={26} />}</h1>
@@ -166,16 +196,22 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
         {tab === 'overview' && (
           <>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 print:hidden">
-              <Card className="bg-ink text-white">
+              <Card className="!bg-ink text-white">
                 <p className="text-sm text-white/70">Balance</p>
                 <p className="mt-1 text-4xl font-extrabold tracking-tight"><Money micro={d.balance} className="[&>span:first-child]:text-white/60" /></p>
-                <p className="mt-2 text-xs text-white/70">{kept / 100}% of every sale stays here</p>
+                <p className="num mt-1 text-xs text-white/60">{usd(d.balance)} sUSD on NEAR. {kept / 100}% of every sale stays here.</p>
+                <button type="button" disabled={d.balance < 1_000_000} onClick={() => setPaying(true)} className="mt-3 rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-fill disabled:opacity-40">Withdraw</button>
               </Card>
               {d.splits.map((s) => (
                 <Card key={s.account_id}>
                   <p className="text-sm capitalize text-soft">{s.account_id.split('.')[0]}</p>
                   <p className="mt-1 text-4xl font-extrabold tracking-tight"><Money micro={s.balance} /></p>
                   <p className="mt-2 text-xs text-soft">{s.bps / 100}% of every sale, split by the contract</p>
+                  {s.account_id.endsWith('.' + d.near_id) && s.balance > 0 && (
+                    <button type="button" disabled={moving !== null} onClick={() => sweep(s.account_id)} className="mt-3 rounded-full bg-fill px-3 py-1.5 text-xs font-semibold hover:bg-line disabled:opacity-50">
+                      {moving === s.account_id ? 'Moving…' : 'Move to balance'}
+                    </button>
+                  )}
                 </Card>
               ))}
               <Card className={d.splits.length === 0 ? 'lg:col-span-3' : d.splits.length === 1 ? 'lg:col-span-2' : ''}>
@@ -209,9 +245,31 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
               </Card>
             </div>
 
+            {live && paid.length === 0 && <FirstSteps kind={d.kind} hasPrices={counter || d.items.length > 0} onPrint={() => window.print()} />}
+
+            <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] print:hidden">
+              <Card>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                  <h2 className="text-xl font-bold">Sales, last 14 days</h2>
+                  {stats && <Trend today={stats.today.sales} yesterday={stats.yesterday.sales} />}
+                </div>
+                <div className="mt-3">{stats ? <DaysChart days={stats.days} /> : <div className="skeleton h-52" />}</div>
+              </Card>
+              <div className="grid gap-4">
+                <Card>
+                  <h2 className="text-xl font-bold">Today by the hour</h2>
+                  <div className="mt-2">{stats ? <HoursChart hours={stats.hours} /> : <div className="skeleton h-28" />}</div>
+                </Card>
+                <Card>
+                  <h2 className="text-xl font-bold">What sells</h2>
+                  <div className="mt-3">{stats ? <TopItems items={stats.top} unit={venue ? 'tickets' : 'sold'} /> : <div className="skeleton h-24" />}</div>
+                </Card>
+              </div>
+            </div>
+
             <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
               <div className="space-y-6 print:hidden">
-                {counter && live && <Charge charges={d.charges} shopId={d.near_id} onDone={() => load()} />}
+                {counter && live && <Charge charges={d.charges} shopId={d.near_id} shopName={d.name} onDone={() => load()} />}
                 {venue && <Gate orders={d.orders} onDone={() => load()} />}
                 <section className="space-y-3">
                   <div className="flex items-baseline justify-between px-1">
@@ -244,19 +302,25 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
 
               <aside className="space-y-4">
                 {live ? (
-                  <Card className="text-center print:shadow-none">
-                    <h2 className="text-xl font-bold print:text-4xl">{venue ? 'Scan to get your ticket' : counter ? 'Scan to pay' : 'Scan to order'}</h2>
-                    <p className="hidden text-2xl font-semibold print:block">{d.name}</p>
-                    <a href={code} target="_blank" rel="noreferrer" aria-label="Open this code as a customer" className="mx-auto mt-3 block w-fit rounded-2xl border border-line p-3">
-                      <QRCodeSVG value={code} size={196} fgColor="#0c0e12" bgColor="#ffffff" level="M" />
+                  <Card className="text-center print:!bg-white print:shadow-none">
+                    <h2 className="text-xl font-bold print:text-5xl">{venue ? 'Scan to get your ticket' : counter ? 'Scan to pay' : 'Scan to order'}</h2>
+                    {/* The code in its frame: the shop's name and checkmark above, the mark below. A plain sticker has neither. */}
+                    <a href={code} target="_blank" rel="noreferrer" aria-label="Open this code as a customer" className="mx-auto mt-4 block w-fit rounded-[30px] p-3 ring-1 ring-line print:mt-8 print:ring-2" style={{ background: shopLook(d.name).tint }}>
+                      <span className="flex items-center justify-center gap-1.5 px-2 pb-2.5 pt-1 text-sm font-bold print:text-2xl" style={{ color: shopLook(d.name).ink }}>{d.name} <Tick /></span>
+                      <span className="block print:hidden"><ShopCode value={code} name={d.name} size={212} /></span>
+                      <span className="hidden print:block"><ShopCode value={code} name={d.name} size={420} /></span>
+                      <span className="flex items-center justify-center gap-1.5 pb-0.5 pt-2.5 text-xs font-semibold text-soft print:text-base"><img src="/sokonipay-logo.png" alt="" width={16} height={16} className="mix-blend-multiply" />Verified on SokoniPay</span>
                     </a>
-                    <p className="mt-3 text-sm text-soft">
-                      {d.kind === 'food'
-                        ? 'This code changes every 10 seconds. An order through it proves the customer is at your stall. No location is collected.'
-                        : `This code only says who you are. It takes no payment and doesn’t change, so you can print it for the ${venue ? 'gate' : 'counter'}. Customers’ agents pay only because your shop is verified on NEAR.`}
+                    <p className="mt-3 text-sm text-soft print:mt-8 print:text-xl print:text-ink">
+                      <span className="hidden print:inline">Point your phone’s camera here. Your agent pays {d.name} inside the limits you set. No phone number, no queue.</span>
+                      <span className="print:hidden">
+                        {d.kind === 'food'
+                          ? 'This code changes every 10 seconds. An order through it proves the customer is at your stall. No location is collected.'
+                          : `This code only says who you are. It takes no payment and doesn’t change, so you can print it for the ${venue ? 'gate' : 'counter'}.`}
+                      </span>
                     </p>
                     <div className="mt-3 flex justify-center gap-2 print:hidden">
-                      {d.kind !== 'food' && <Button tone="quiet" onClick={() => window.print()} className="!py-2 text-sm">Print for the {venue ? 'gate' : 'counter'}</Button>}
+                      {d.kind !== 'food' && <Button tone="quiet" onClick={() => window.print()} className="!py-2 text-sm">Print the poster</Button>}
                     </div>
                     <p className="mt-2 text-xs text-soft print:hidden">No phone to hand? Click the code to open it as a customer.</p>
                   </Card>
@@ -298,6 +362,91 @@ export default function Console({ isAdmin }: { isAdmin: boolean }) {
           </div>
         )}
       </main>
+      {paying && (
+        <div className="print:hidden">
+          <Withdraw balance={d.balance} path="/api/console/withdraw" whose="the shop’s" onClose={() => setPaying(false)} onDone={() => { void load(); void loadStats() }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Which shop you are in, and the way to another or a new one. */
+function Switcher({ shops, current, onSwitch }: { shops: ShopRef[]; current: string; onSwitch: (nearId: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  const mine = shops.find((x) => x.near_id === current)
+  const look = shopLook(mine?.name ?? '')
+  const words: Record<string, string> = { venue: 'Venue', food: 'Food stall', counter: 'Counter' }
+  return (
+    <div ref={box} className="relative">
+      <button type="button" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} className="flex max-w-[13rem] items-center gap-2 rounded-full bg-fill py-1.5 pl-1.5 pr-3 text-sm font-medium hover:bg-line">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] text-[11px] font-bold" style={{ background: look.tint, color: look.ink }}>{look.initials}</span>
+        <span className="truncate">{mine?.name}</span>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}><path d="m2.5 4.5 3.5 3.5 3.5-3.5" /></svg>
+      </button>
+      {open && (
+        <div role="menu" className="rise absolute right-0 top-full z-30 mt-2 w-72 rounded-3xl bg-card p-2 shadow-[0_16px_40px_rgb(12_14_18/0.18)] ring-1 ring-line">
+          <p className="px-3 pb-1 pt-2 text-xs font-medium text-soft">Your shops</p>
+          {shops.map((x) => (
+            <button key={x.near_id} role="menuitem" type="button" onClick={() => { setOpen(false); onSwitch(x.near_id) }} className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-fill ${x.near_id === current ? 'bg-canvas' : ''}`}>
+              <ShopIcon name={x.name} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{x.name}</span>
+                <span className="block text-xs text-soft">{words[x.kind] ?? x.kind}{x.status === 'approved' ? '' : x.status === 'pending' ? ', waiting to be verified' : ', suspended'}</span>
+              </span>
+              {x.near_id === current && <span className="h-2 w-2 shrink-0 rounded-full bg-iris" aria-label="Current" />}
+            </button>
+          ))}
+          <div className="mx-3 my-1 border-t border-line" />
+          {shops.length < 5
+            ? <Link to="/new" role="menuitem" className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-semibold hover:bg-fill"><span className="flex h-11 w-11 items-center justify-center rounded-[13px] bg-fill text-xl">+</span>Open another shop</Link>
+            : <p className="px-3 py-2 text-xs text-soft">Five shops is the most one account can have.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Today against yesterday, in words and a colour. */
+function Trend({ today, yesterday }: { today: number; yesterday: number }) {
+  if (!yesterday && !today) return null
+  const diff = yesterday ? Math.round(((today - yesterday) / yesterday) * 100) : null
+  return (
+    <p className="num text-sm text-soft">
+      Today <span className="font-semibold text-ink">KES {today.toLocaleString('en-US')}</span>
+      {diff !== null && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${diff >= 0 ? 'bg-good-wash text-good' : 'bg-bad-wash text-bad'}`}>{diff >= 0 ? 'up' : 'down'} {Math.abs(diff)}% on yesterday</span>}
+    </p>
+  )
+}
+
+/** What a newly verified shop does next. It goes away after the first sale. */
+function FirstSteps({ kind, hasPrices, onPrint }: { kind: Data['kind']; hasPrices: boolean; onPrint: () => void }) {
+  const steps: [string, boolean, string][] = [
+    [kind === 'counter' ? 'Your counter is set up' : 'Your prices are set', hasPrices, ''],
+    ['SokoniPay has verified you', true, ''],
+    [kind === 'food' ? 'Keep this page open where customers can scan it' : 'Print your poster and put it up', false, kind === 'food' ? '' : 'Print'],
+    ['Make a test sale: click your code to open it as a customer', false, ''],
+  ]
+  return (
+    <div className="rounded-3xl bg-card p-5 print:hidden">
+      <h2 className="text-xl font-bold">You’re open. Two things left</h2>
+      <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {steps.map(([text, done, action], n) => (
+          <li key={n} className="flex items-start gap-3 rounded-2xl bg-canvas p-3 text-sm">
+            <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${done ? 'bg-good text-white' : 'bg-card text-soft ring-1 ring-line'}`}>{done ? '✓' : n + 1}</span>
+            <span>{text}{action && <button type="button" onClick={onPrint} className="ml-2 font-semibold text-iris hover:underline">{action}</button>}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -453,7 +602,7 @@ function Discounts({ rules, kind, onSaved }: { rules: Rule[]; kind: Data['kind']
 }
 
 /** A counter: key in what the customer owes. They scan the code, their agent pays, and it turns green here. */
-function Charge({ charges, shopId, onDone }: { charges: ChargeRow[]; shopId: string; onDone: () => void }) {
+function Charge({ charges, shopId, shopName, onDone }: { charges: ChargeRow[]; shopId: string; shopName: string; onDone: () => void }) {
   const [amount, setAmount] = useState('')
   const [what, setWhat] = useState('')
   const [busy, setBusy] = useState(false)
@@ -492,7 +641,7 @@ function Charge({ charges, shopId, onDone }: { charges: ChargeRow[]; shopId: str
             const link = `${CUSTOMER_APP}/pay?m=${shopId}&c=${c.id}`
             return (
               <li key={c.id} className="flex flex-wrap items-center gap-4 rounded-2xl bg-canvas p-4">
-                {i === 0 && <a href={link} target="_blank" rel="noreferrer" aria-label="Open this amount as a customer" className="rounded-xl bg-white p-2"><QRCodeSVG value={link} size={92} fgColor="#0c0e12" bgColor="#ffffff" level="M" /></a>}
+                {i === 0 && <a href={link} target="_blank" rel="noreferrer" aria-label="Open this amount as a customer" className="rounded-xl bg-white p-2"><ShopCode value={link} name={shopName} size={132} /></a>}
                 <div className="min-w-0 flex-1">
                   <p className="num text-2xl font-extrabold tracking-tight">KES {c.amount_kes.toLocaleString('en-US')}</p>
                   <p className="text-sm">{c.note || 'Counter sale'}</p>

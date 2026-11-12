@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '@shared/api'
+import { api } from './api'
 import { CoinIcon } from './Coin'
-import { Button, Notice, Spinner, TxLink, fmt, toMicro, usd } from '@shared/ui'
+import { Button, Notice, Spinner, TxLink, fmt, toMicro, usd } from './ui'
 
 type Token = { asset_id: string; symbol: string; decimals: number }
 type Chain = { id: string; name: string; tokens: Token[] }
@@ -10,7 +10,11 @@ type Quote = { chain_name: string; symbol: string; receive: string; seconds: num
 type Done = { send: string; symbol: string; chain: string; credited: number; deposit_address: string; tx_hash: string | null }
 
 /** Take money out as whichever stablecoin, on whichever chain, the person wants. NEAR Intents prices it. */
-export default function Withdraw({ balance, onClose, onDone }: { balance: number; onClose: () => void; onDone: () => void }) {
+export default function Withdraw({ balance, onClose, onDone, path = '/api/funding/withdrawals', whose = 'your SokoniPay' }: {
+  balance: number; onClose: () => void; onDone: () => void
+  /** Where the withdrawal is sent: a person's wallet by default, or a shop's balance. */
+  path?: string; whose?: string
+}) {
   const [options, setOptions] = useState<Options | null>(null)
   const [chain, setChain] = useState<Chain | null>(null)
   const [token, setToken] = useState<Token | null>(null)
@@ -50,7 +54,7 @@ export default function Withdraw({ balance, onClose, onDone }: { balance: number
     setBusy(true)
     setError('')
     try {
-      setDone(await api<Done>('/api/funding/withdrawals', { body: { asset_id: token!.asset_id, amount: micro, address: address.trim() } }))
+      setDone(await api<Done>(path, { body: { asset_id: token!.asset_id, amount: micro, address: address.trim() } }))
       onDone()
     } catch (e) {
       setError((e as Error).message)
@@ -77,10 +81,10 @@ export default function Withdraw({ balance, onClose, onDone }: { balance: number
           <div className="space-y-4 text-center">
             <p className="num text-5xl font-extrabold tracking-tight text-bad">−{usd(done.credited)}</p>
             <p className="text-sm">
-              {usd(done.credited)} sUSD left your SokoniPay balance, priced as {done.send} {done.symbol} on {done.chain}.{' '}
+              {usd(done.credited)} sUSD left {whose} balance, priced as {done.send} {done.symbol} on {done.chain}.{' '}
               {done.tx_hash && <TxLink hash={done.tx_hash}>See it on NEAR</TxLink>}
             </p>
-            <Notice tone="plain">This is a demo on NEAR testnet, so no real {done.symbol} was sent to {done.deposit_address}. The demo dollars are now in your own NEAR account.</Notice>
+            <Notice tone="plain">This is a demo on NEAR testnet, so no real {done.symbol} was sent to {done.deposit_address}. The demo dollars are now in the NEAR account itself.</Notice>
             <Button onClick={onClose} className="w-full">Done</Button>
           </div>
         ) : (
@@ -138,7 +142,7 @@ export default function Withdraw({ balance, onClose, onDone }: { balance: number
             {quote && (
               <div className="space-y-2">
                 <Button disabled={busy || address.trim().length < 4} onClick={send} className="w-full">{busy ? 'Withdrawing…' : `Withdraw ${usd(micro)} sUSD`}</Button>
-                <p className="text-xs text-soft">SokoniPay runs on NEAR testnet. The price is real and the money does leave your balance, but no real coins are sent to the address. Only you can withdraw: your agent’s key can’t.</p>
+                <p className="text-xs text-soft">SokoniPay runs on NEAR testnet. The price is real and the money does leave your balance, but no real coins are sent to the address. Only the owner can withdraw: the agent’s key can’t.</p>
               </div>
             )}
           </>

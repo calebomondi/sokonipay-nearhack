@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useSearchParams } from 'react-router'
 import { api, ApiError, type Me } from '@shared/api'
 import { AuthCallback, FullPage, GoogleButton, useAuth } from '@shared/auth'
-import { Button, Notice, Spinner } from '@shared/ui'
+import { Button, Notice, Spinner, Logo } from '@shared/ui'
 import Home from './Home'
 import Join from './Join'
 import ReceiptPage from './ReceiptPage'
@@ -63,7 +63,7 @@ function SignedIn() {
 function Welcome() {
   return (
     <main className="mx-auto flex panel w-full max-w-md flex-col px-6 pb-10 pt-8">
-      <p className="text-lg font-bold">SokoniPay</p>
+      <Logo size={44} />
       <div className="flex flex-1 flex-col justify-center gap-6 py-10">
         <h1 className="text-5xl font-extrabold leading-[1.02] tracking-tight">Your agent pays the shop’s agent.</h1>
         <p className="text-lg text-soft">

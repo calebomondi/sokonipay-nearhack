@@ -8,7 +8,7 @@ import { Scanner } from '@shared/Scanner'
 import AddMoney from './AddMoney'
 import Chat from './Chat'
 import Subs from './Subs'
-import Withdraw from './Withdraw'
+import Withdraw from '@shared/Withdraw'
 
 type Row = { id: string; shop: string; kind: string; status: string; total: number; my_share: number | null; paid_at_ms: number | null; refunded_at_ms: number | null; subscription: string | null; ticket: Ticket | null }
 type Wallet = {

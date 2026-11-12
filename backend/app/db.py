@@ -40,7 +40,7 @@ class Account(Base):
     account and a merchant account."""
 
     __tablename__ = "accounts"
-    __table_args__ = (UniqueConstraint("user_id", "role"),)
+    # One customer account per person (kept so in code). A person may own several shops, each its own account.
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)  # Supabase user; None for seeded demo accounts
@@ -240,6 +240,7 @@ async def init_db() -> None:
             f"ALTER TABLE \"{sch}\".shops ADD COLUMN IF NOT EXISTS status VARCHAR(12) NOT NULL DEFAULT 'approved'",
             f"ALTER TABLE \"{sch}\".shops ADD COLUMN IF NOT EXISTS hours JSON",
             f"ALTER TABLE \"{sch}\".items ADD COLUMN IF NOT EXISTS price_kes INTEGER",
+            f"ALTER TABLE \"{sch}\".accounts DROP CONSTRAINT IF EXISTS accounts_user_id_role_key",
             f"ALTER TABLE \"{sch}\".chat_messages ADD COLUMN IF NOT EXISTS thread_id VARCHAR(20)",
             f"ALTER TABLE \"{sch}\".orders ADD COLUMN IF NOT EXISTS settled JSON",
             f"ALTER TABLE \"{sch}\".orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP WITH TIME ZONE",

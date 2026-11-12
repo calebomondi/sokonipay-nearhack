@@ -1,7 +1,7 @@
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@shared/api'
-import { CoinIcon } from './Coin'
+import { CoinIcon } from '@shared/Coin'
 import { Button, Notice, Spinner, TxLink, toMicro, usd } from '@shared/ui'
 
 type Token = { asset_id: string; symbol: string; decimals: number }

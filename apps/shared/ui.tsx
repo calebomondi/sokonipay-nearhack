@@ -85,11 +85,27 @@ const TINTS = ['#e8ecff', '#e3f4ec', '#fdefe0', '#fbe7ef', '#e6f3fa', '#f0eafc',
 const INKS = ['#2a37b8', '#0b6b49', '#9a4a0b', '#a52457', '#0f5f86', '#5a36a8', '#6b5d10']
 
 /** A shop's picture: a soft square with its initials, tinted from its name so each shop keeps one colour. */
-export function ShopIcon({ name, open }: { name: string; open?: boolean }) {
-  const initials = name.replace(/\(.*?\)/g, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')
+/** A shop's own colour pair and initials, the same wherever the shop appears. */
+export function shopLook(name: string): { tint: string; ink: string; initials: string } {
   const n = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % TINTS.length
+  return { tint: TINTS[n], ink: INKS[n], initials: name.replace(/\(.*?\)/g, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') }
+}
+
+/** The SokoniPay mark. `children` sits beside it, for "for shops". */
+export function Logo({ size = 32, children }: { size?: number; children?: ReactNode }) {
   return (
-    <span aria-hidden className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px] text-sm font-bold" style={{ background: TINTS[n], color: INKS[n] }}>
+    <span className="inline-flex items-center gap-2">
+      {/* The file has a white ground; multiply lets the page colour show through it. */}
+      <img src="/sokonipay-logo.png" alt="SokoniPay" width={size} height={size} className="shrink-0 mix-blend-multiply" />
+      {children}
+    </span>
+  )
+}
+
+export function ShopIcon({ name, open }: { name: string; open?: boolean }) {
+  const { tint, ink, initials } = shopLook(name)
+  return (
+    <span aria-hidden className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px] text-sm font-bold" style={{ background: tint, color: ink }}>
       {initials}
       {open !== undefined && <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card ${open ? 'bg-good' : 'bg-soft'}`} />}
     </span>

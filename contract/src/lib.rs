@@ -524,6 +524,22 @@ impl SokoniPay {
         inv
     }
 
+    /// Bring a balance held by one of the caller's own sub-accounts back to the caller: a shop moving its
+    /// "savings.<shop>" share to its main balance. Revenue splits pay such accounts, and they have no key of
+    /// their own, so without this the money could never leave. Requires exactly 1 yoctoNEAR.
+    #[payable]
+    pub fn sweep(&mut self, from: AccountId) -> U128 {
+        assert_one_yocto();
+        let owner = env::predecessor_account_id();
+        require!(from.as_str().ends_with(&format!(".{owner}")), "only your own sub-accounts");
+        let amount = self.balances.get(&from).copied().unwrap_or(0);
+        require!(amount > 0, "nothing to move");
+        self.debit(&from, amount);
+        self.credit(&owner, amount);
+        emit("sweep", near_sdk::serde_json::json!({ "from": from, "to": owner, "amount": U128(amount) }));
+        U128(amount)
+    }
+
     // ------------------------------------------------------------------ subscriptions
 
     /// Allow `merchant` to bill the caller `amount` once every `period_ms` for `plan`. The first bill is due now.
