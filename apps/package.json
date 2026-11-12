@@ -1,10 +1,20 @@
 {
   "name": "sokonipay-apps",
   "private": true,
-  "workspaces": ["customer", "merchant"],
+  "workspaces": [
+    "customer",
+    "merchant"
+  ],
   "scripts": {
     "dev:customer": "npm run dev -w customer",
     "dev:merchant": "npm run dev -w merchant",
-    "build": "npm run build -w customer && npm run build -w merchant"
+    "build": "npm run build -w customer && npm run build -w merchant",
+    "build:customer": "npm run build -w customer",
+    "build:merchant": "npm run build -w merchant",
+    "start:customer": "serve -s customer/dist -l tcp://0.0.0.0:${PORT:-5173}",
+    "start:merchant": "serve -s merchant/dist -l tcp://0.0.0.0:${PORT:-5174}"
+  },
+  "devDependencies": {
+    "serve": "^14.2.7"
   }
 }
