@@ -148,7 +148,7 @@ function Figure({ name, kes: amount, micro, note, strong }: { name: string; kes:
   return (
     <Card className={strong ? 'ring-2 ring-ink' : ''}>
       <p className="text-sm text-soft">{name}</p>
-      <p className="num mt-1 text-3xl font-extrabold tracking-tight">{amount < 0 && '−'}<span className="mr-1 text-sm font-semibold text-soft">KES</span>{kes(Math.abs(amount))}</p>
+      <p className="num mt-1 text-3xl font-extrabold tracking-tight">{amount < 0 && '−'}<span className="text-sm font-semibold text-soft">KES</span>{' '}{kes(Math.abs(amount))}</p>
       <p className="mt-2 text-xs text-soft">{usd(Math.abs(micro))} sUSD. {note}</p>
     </Card>
   )

@@ -146,9 +146,17 @@ def setup_error(e: near.ContractError) -> HTTPException:
     return HTTPException(502, f"NEAR testnet did not complete the setup ({e.reason}). Try again: it picks up where it stopped.")
 
 
+def _share(inv: dict, near_id: str) -> int | None:
+    return next((int(c["amount"]) for c in inv["contributions"] if c["account_id"] == near_id), None)
+
+
 async def receipts_for(near_id: str) -> list[dict]:
     invoices = await near.view("get_invoices_for", {"account_id": near_id, "limit": 30})
+    # A share of a split bill still waiting for the others. The contract holds it, so it has already left the balance.
+    held = [i for i in invoices if i["merchant"] != near_id and i["kind"] == "Group" and i["status"] == "Open" and _share(i, near_id)]
     async with Session() as s:
+        bills = {o.invoice_id: o.id for o in await s.scalars(
+            select(Order).where(Order.invoice_id.in_([i["id"] for i in held])))} if held else {}
         shops = {x.near_id: x.name for x in await s.scalars(select(Shop))}
         renewals = {o.invoice_id: o.goal for o in await s.scalars(
             select(Order).where(Order.customer_near_id == near_id, Order.mode == "sub", Order.invoice_id.is_not(None)))}
@@ -165,8 +173,14 @@ async def receipts_for(near_id: str) -> list[dict]:
              "subscription": renewals.get(i["id"]),
              "pickup_code": policy.pickup_code(i["id"]) if i["id"] in pickups else None,
              "ticket": ticket_view(t) if i["kind"] == "Ticket" else None,
-             "my_share": next((int(c["amount"]) for c in i["contributions"] if c["account_id"] == near_id), None)}
-            for i, t in zip(paid, tickets, strict=True)]
+             "my_share": _share(i, near_id)}
+            for i, t in zip(paid, tickets, strict=True)] + [
+        {"id": i["id"], "shop": shops.get(i["merchant"], i["merchant"]), "kind": i["kind"], "status": "Open",
+         "total": int(i["amount"]), "paid_at_ms": None, "redeemed": False, "refunded_at_ms": None, "subscription": None,
+         "pickup_code": None, "ticket": None, "my_share": _share(i, near_id),
+         # The contract doesn't record when each share came in, so the line is dated when the bill was opened.
+         "held_at_ms": i["created_at_ms"], "expires_at_ms": i["expires_at_ms"], "order_id": bills.get(i["id"])}
+        for i in held]
 
 
 # ---------------------------------------------------------------- public
@@ -532,6 +546,8 @@ class FundingIn(BaseModel):
     amount: int = Field(ge=settings.funding_min, le=settings.funding_max)  # micro USD
     # Where NEAR Intents returns the coins if the swap fails. Giving it asks for a real deposit address.
     refund_to: str | None = Field(default=None, min_length=2, max_length=120)
+    # The amount the person was shown before tapping. Demo money never adds more than that.
+    shown: int | None = Field(default=None, gt=0)
 
 
 def deposit_view(d: Deposit) -> dict:
@@ -630,7 +646,10 @@ async def start_deposit(body: FundingIn, account: Account = Depends(customer_of)
     except intents.IntentsError as e:
         raise HTTPException(422, str(e)) from e
     d = Deposit(id="d-" + secrets.token_hex(6), customer_near_id=account.near_id, mode="live" if live else "preview",
-                chain=q["chain"], symbol=q["symbol"], asset_id=body.asset_id, send=q["send"], expected=q["receive"],
+                chain=q["chain"], symbol=q["symbol"], asset_id=body.asset_id, send=q["send"],
+                # This is a fresh quote, a fraction of a cent off the one on screen. Demo money adds what the button said
+                # (never more than the fresh quote), so the result matches it.
+                expected=min(q["receive"], body.shown) if body.shown and not live else q["receive"],
                 seconds=q["seconds"], deposit_address=q["deposit_address"], memo=q["memo"], deadline=q["deadline"])
     async with Session() as s:
         s.add(d)

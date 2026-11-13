@@ -36,9 +36,12 @@ export function AgentPanel({ shop }: { shop: string }) {
   const recorder = useRef<MediaRecorder | null>(null)
   const busy = useRef(false)
   const end = useRef<HTMLDivElement>(null)
+  const box = useRef<HTMLInputElement>(null)
 
   const loadThreads = () => api<{ chats: Thread[]; voice?: boolean }>('/api/console/chats').then((r) => { setThreads(r.chats); setVoice(!!r.voice) }).catch((e) => setError(e.message))
   useEffect(() => { if (open) void loadThreads() }, [open])
+  // Focus the box as the panel opens, so typing straight away lands there and not on the page behind.
+  useEffect(() => { if (open) box.current?.focus({ preventScroll: true }) }, [open])
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [msgs.length, steps?.length])
   useEffect(() => {
     if (!open) return
@@ -201,7 +204,7 @@ export function AgentPanel({ shop }: { shop: string }) {
                   : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" /></svg>}
               </button>
             )}
-            <input value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={working || hearing !== 'off'} aria-label="Ask your agent"
+            <input ref={box} value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={working || hearing !== 'off'} aria-label="Ask your agent"
               placeholder={hearing === 'on' ? 'Listening… tap the square to send' : hearing === 'working' ? 'Working out what you said…' : working ? 'Reading your figures…' : 'Ask about your shop'}
               className="min-w-0 flex-1 rounded-full bg-fill px-4 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris disabled:opacity-60" />
             <Button disabled={working || !text.trim()} aria-label="Send" className="!px-3.5 !py-2.5">

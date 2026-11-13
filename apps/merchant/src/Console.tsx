@@ -216,10 +216,10 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
                 note={<>{usd(d.balance)} sUSD on NEAR. {kept / 100}% of every sale stays here.</>}>
                 <button type="button" disabled={d.balance < 1_000_000} onClick={() => setPaying(true)} className="mt-4 w-fit rounded-full bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-fill disabled:opacity-40">Withdraw</button>
               </Metric>
-              <Metric label="Today" value={stats ? <><span className="mr-1 text-base font-semibold text-soft">KES</span>{stats.today.sales.toLocaleString('en-US')}</> : '…'}
+              <Metric label="Today" value={stats ? <><span className="text-base font-semibold text-soft">KES</span>{' '}{stats.today.sales.toLocaleString('en-US')}</> : '…'}
                 note={stats ? `${stats.today.count} ${stats.today.count === 1 ? 'sale' : 'sales'}${stats.today.refunds ? `, KES ${stats.today.refunds.toLocaleString('en-US')} refunded` : ''}` : ''}
                 change={stats ? against(stats.today.sales, stats.yesterday.sales) : null} trend={stats?.days.slice(-14).map((x) => x.sales)} />
-              <Metric label="Average sale" value={stats ? <><span className="mr-1 text-base font-semibold text-soft">KES</span>{average(stats.days.slice(-14)).toLocaleString('en-US')}</> : '…'}
+              <Metric label="Average sale" value={stats ? <><span className="text-base font-semibold text-soft">KES</span>{' '}{average(stats.days.slice(-14)).toLocaleString('en-US')}</> : '…'}
                 note="Over the last 14 days" change={stats ? against(average([stats.today]), average([stats.yesterday])) : null}
                 trend={stats?.days.slice(-14).map((x) => (x.count ? x.sales / x.count : 0))} />
               <Metric label="Customers today" value={stats ? stats.today.customers : '…'}
@@ -744,7 +744,8 @@ function Charge({ charges, shopId, shopName, onDone }: { charges: ChargeRow[]; s
 function Items({ items, venue, counter = false, restocks, onSaved }: { items: Item[]; venue: boolean; counter?: boolean; restocks: boolean; onSaved: () => unknown }) {
   const [unit, setUnit] = useState('')
   const [whole, setWhole] = useState(false)
-  const [saving, setSaving] = useState(false)
+  // What is saving: a row's sku, or 'new' for the add form. Every button waits, but only that one says "Saving…".
+  const [saving, setSaving] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [price, setPrice] = useState('')
   const [stock, setStock] = useState('')
@@ -752,17 +753,19 @@ function Items({ items, venue, counter = false, restocks, onSaved }: { items: It
   const [newPrice, setNewPrice] = useState('')
   const [category, setCategory] = useState('main')
   const [error, setError] = useState('')
-  const run = async (fn: () => Promise<unknown>) => {
-    setSaving(true)
+  const run = async (what: string, fn: () => Promise<unknown>) => {
+    setSaving(what)
     try {
       await fn()
       setError('')
       await onSaved() // the row keeps "Saving…" until the new figures are on screen
       setEditing(null)
+      return true
     } catch (e) {
       setError((e as Error).message)
+      return false
     } finally {
-      setSaving(false)
+      setSaving(null)
     }
   }
   const noStock = venue || counter
@@ -793,8 +796,8 @@ function Items({ items, venue, counter = false, restocks, onSaved }: { items: It
                   {counter && <td className="py-2 pl-4 text-soft">{i.unit || 'one'}{i.whole && i.unit ? ', whole only' : ''}</td>}
                   {!noStock && <td className="py-2 text-right"><input aria-label={`Stock of ${i.name}`} inputMode="numeric" className={cell} value={stock} onChange={(e) => setStock(digits(e.target.value))} /></td>}
                   <td className="whitespace-nowrap px-5 py-2 text-right">
-                    <button disabled={saving} onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'PATCH', body: noStock ? { price_kes: Math.round(Number(price)) } : { price_kes: Math.round(Number(price)), stock: Math.round(Number(stock)) } }))} className="font-semibold text-iris disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
-                    <button disabled={saving} onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'DELETE' }))} className="ml-3 font-medium text-bad disabled:opacity-50">Remove</button>
+                    <button disabled={!!saving} onClick={() => run(i.sku, () => api(`/api/console/items/${i.sku}`, { method: 'PATCH', body: noStock ? { price_kes: Math.round(Number(price)) } : { price_kes: Math.round(Number(price)), stock: Math.round(Number(stock)) } }))} className="font-semibold text-iris disabled:opacity-50">{saving === i.sku ? 'Saving…' : 'Save'}</button>
+                    <button disabled={!!saving} onClick={() => run(i.sku, () => api(`/api/console/items/${i.sku}`, { method: 'DELETE' }))} className="ml-3 font-medium text-bad disabled:opacity-50">Remove</button>
                   </td>
                 </>
               ) : (
@@ -816,7 +819,7 @@ function Items({ items, venue, counter = false, restocks, onSaved }: { items: It
         className="flex flex-wrap gap-2 border-t border-line p-4"
         onSubmit={(e) => {
           e.preventDefault()
-          void run(() => api('/api/console/items', { body: { name: newName.trim(), price_kes: Math.round(Number(newPrice)), category, unit: unit.trim(), whole } })).then(() => { setNewName(''); setNewPrice(''); setUnit(''); setWhole(false) })
+          void run('new', () => api('/api/console/items', { body: { name: newName.trim(), price_kes: Math.round(Number(newPrice)), category, unit: unit.trim(), whole } })).then((ok) => { if (ok) { setNewName(''); setNewPrice(''); setUnit(''); setWhole(false) } })
         }}
       >
         <input aria-label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={venue ? 'Adult' : counter ? 'Diesel' : 'Chapati'} className="min-w-0 flex-1 rounded-full bg-fill px-4 py-2 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
@@ -832,7 +835,7 @@ function Items({ items, venue, counter = false, restocks, onSaved }: { items: It
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={whole} onChange={(e) => setWhole(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />Whole only</label>
           </>
         )}
-        <Button tone="dark" disabled={saving || newName.trim().length < 2 || !(Number(newPrice) >= 1)} className="!px-4 !py-2 text-sm">{saving ? 'Saving…' : `Add ${venue ? 'ticket' : 'item'}`}</Button>
+        <Button tone="dark" disabled={!!saving || newName.trim().length < 2 || !(Number(newPrice) >= 1)} className="!px-4 !py-2 text-sm">{saving === 'new' ? 'Saving…' : `Add ${venue ? 'ticket' : 'item'}`}</Button>
       </form>
     </Card>
   )
@@ -1034,6 +1037,9 @@ function Gate({ orders, onDone }: { orders: OrderRow[]; onDone: () => void }) {
   )
 }
 
+/** Typing into a box that holds 0 gives "10", not "010". */
+const percent = (typed: string) => typed.replace(/^0+(?=\d)/, '')
+
 function Split({ splits, onSaved }: { splits: Data['splits']; onSaved: () => void }) {
   const pct = (name: string) => String((splits.find((s) => s.account_id.startsWith(name + '.'))?.bps ?? 0) / 100)
   const [savings, setSavings] = useState(pct('savings'))
@@ -1062,10 +1068,10 @@ function Split({ splits, onSaved }: { splits: Data['splits']; onSaved: () => voi
       <form onSubmit={save} className="mt-3 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <label className="text-sm font-medium">To savings, %
-            <input className={field} inputMode="decimal" value={savings} onChange={(e) => setSavings(e.target.value)} />
+            <input className={field} inputMode="decimal" value={savings} onChange={(e) => setSavings(percent(e.target.value))} />
           </label>
           <label className="text-sm font-medium">To a partner, %
-            <input className={field} inputMode="decimal" value={partner} onChange={(e) => setPartner(e.target.value)} />
+            <input className={field} inputMode="decimal" value={partner} onChange={(e) => setPartner(percent(e.target.value))} />
           </label>
         </div>
         <Button tone="dark" disabled={busy} className="w-full !py-2.5 text-sm">{busy ? 'Saving…' : 'Save split'}</Button>

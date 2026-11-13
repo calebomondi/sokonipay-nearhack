@@ -45,6 +45,12 @@ _KNOWN = {
 
 
 BUSY = "the NEAR test network is busy right now, so nothing was done. Try again in a moment"
+UNREACHABLE = "NEAR couldn't be reached just now, so nothing was done. Try again in a moment"
+
+# The network failing, not the contract saying no. These never carry anything a person should read.
+_NETWORK = re.compile(r"jsonrpc|timeout|timed out|not synced|unavailable|internal error|connect|^\s*[{\[]", re.IGNORECASE)
+_NETWORK_TYPES = {"RPCTimeoutError", "RpcTimeoutError", "RpcNotAvailableError", "InternalError", "NoSyncedYetError",
+                  "NoSyncedBlocksError", "UnavailableShardError", "JsonProviderError", "TimeoutError", "ConnectionError"}
 
 
 def _reason(err: object) -> str:
@@ -57,6 +63,8 @@ def _reason(err: object) -> str:
     for needle, plain in _KNOWN.items():
         if needle in text or needle == type(err).__name__:
             return plain
+    if type(err).__name__ in _NETWORK_TYPES or _NETWORK.search(text):
+        return UNREACHABLE
     return text[:240]
 
 

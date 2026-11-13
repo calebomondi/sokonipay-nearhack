@@ -86,7 +86,7 @@ export default function AddMoney({ onClose, onAdded }: { onClose: () => void; on
     }
   }
   const start = (live: boolean) => once(async () => {
-    const d = await api<Deposit>('/api/funding/deposits', { body: { asset_id: token!.asset_id, amount: micro, ...(live ? { refund_to: refundTo.trim() } : {}) } })
+    const d = await api<Deposit>('/api/funding/deposits', { body: { asset_id: token!.asset_id, amount: micro, ...(live ? { refund_to: refundTo.trim() } : { shown: quote?.receive }) } })
     if (live) return setDeposit(d)
     // A preview has nothing to wait for: add the demo dollars straight away.
     setDeposit(await api<Deposit>(`/api/funding/deposits/${d.id}/simulate`, { method: 'POST' }))
