@@ -44,8 +44,13 @@ _KNOWN = {
 }
 
 
+BUSY = "the NEAR test network is busy right now, so nothing was done. Try again in a moment"
+
+
 def _reason(err: object) -> str:
     text = str(err) or type(err).__name__
+    if "rate limit" in text.lower() or "RPC not available" in text or "429" in text:
+        return BUSY  # never show a provider's raw error to someone at a till
     m = _PANIC.search(text)
     if m:
         return m.group(1).strip().rstrip(".,")
@@ -60,21 +65,68 @@ _locks: dict[str, asyncio.Lock] = {}
 _reader: NearAccount | None = None
 
 
+def _rpc() -> list[str]:
+    return [u.strip() for u in settings.near_rpc_url.split(",") if u.strip()]
+
+
 async def _account(account_id: str, private_key: str) -> NearAccount:
     key = (account_id, private_key)
     if key not in _accounts:
-        acc = NearAccount(account_id, private_key, settings.near_rpc_url)
+        acc = NearAccount(account_id, private_key, _rpc())
         await acc.startup()
         _accounts[key] = acc
     return _accounts[key]
 
 
+# Reads are remembered for a few seconds. Every screen polls, and the same few facts (a balance, whether a
+# shop is verified) are asked for many times a second; without this the RPC provider starts refusing us.
+# Anything this server writes clears the memory first, so a screen never shows the state from before its own action.
+_TTL = {"is_verified": 30.0, "get_merchant": 10.0}
+_seen: dict[str, tuple[float, Any]] = {}
+_asking: dict[str, asyncio.Future] = {}
+
+
+def _keep_for(method: str, result: Any) -> float:
+    if result is None:
+        return 0.0  # "not there yet" may be about to change
+    if method == "get_ticket" and result.get("admitted", 0) >= result.get("admits", 1):
+        return 3600.0  # a used-up ticket never changes again
+    return _TTL.get(method, 4.0)
+
+
 async def view(method: str, args: dict | None = None, contract: str | None = None) -> Any:
     global _reader
-    if _reader is None:
-        _reader = NearAccount(rpc_addr=settings.near_rpc_url)
-        await _reader.startup()
-    return (await _reader.view_function(contract or settings.contract_id, method, args or {})).result
+    key = f"{contract or ''}|{method}|{json.dumps(args or {}, sort_keys=True)}"
+    hit = _seen.get(key)
+    now = asyncio.get_running_loop().time()
+    if hit and hit[0] > now:
+        return hit[1]
+    if key in _asking:  # the same question is already on its way: share the answer
+        return await asyncio.shield(_asking[key])
+    fut = _asking[key] = asyncio.get_running_loop().create_future()
+    try:
+        if _reader is None:
+            _reader = NearAccount(rpc_addr=_rpc())
+            await _reader.startup()
+        for attempt in range(3):
+            try:
+                result = (await _reader.view_function(contract or settings.contract_id, method, args or {})).result
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise ContractError(_reason(e)) from e
+                await asyncio.sleep(0.5 * (attempt + 1))
+        keep = _keep_for(method, result)
+        if keep:
+            _seen[key] = (asyncio.get_running_loop().time() + keep, result)
+        fut.set_result(result)
+        return result
+    except BaseException as e:
+        fut.set_exception(e)
+        fut.exception()  # mark it read, so an unshared failure isn't logged as never retrieved
+        raise
+    finally:
+        _asking.pop(key, None)
 
 
 async def _send(account_id: str, private_key: str, do) -> Sent:
@@ -85,6 +137,8 @@ async def _send(account_id: str, private_key: str, do) -> Sent:
             res = await do(acc)
         except Exception as e:  # py-near raises its own types for chain errors
             raise ContractError(_reason(e), getattr(e, "trx_hash", None)) from e
+        finally:
+            _seen.clear()  # whatever was read before this may now be out of date
     tx_hash = res.transaction.hash
     status = res.status or {}
     if "Failure" in status:
@@ -120,7 +174,7 @@ async def create_account(near_id: str, public_key: str) -> Sent:
 
 
 async def account_exists(near_id: str) -> bool:
-    reader = NearAccount(near_id, rpc_addr=settings.near_rpc_url)
+    reader = NearAccount(near_id, rpc_addr=_rpc())
     await reader.startup()
     try:
         state = await reader.fetch_state()
@@ -130,7 +184,7 @@ async def account_exists(near_id: str) -> bool:
 
 
 async def near_balance(near_id: str) -> int:
-    reader = NearAccount(near_id, rpc_addr=settings.near_rpc_url)
+    reader = NearAccount(near_id, rpc_addr=_rpc())
     await reader.startup()
     return int(await reader.get_balance())
 

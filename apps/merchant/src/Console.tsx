@@ -81,8 +81,9 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   useEffect(() => {
     load()
     loadStats()
-    const t = setInterval(() => load(true), 4000)
-    const u = setInterval(loadStats, 30_000)
+    // Not while the tab is in the background: nobody is looking, and every refresh asks the chain several questions.
+    const t = setInterval(() => { if (!document.hidden) void load(true) }, 5000)
+    const u = setInterval(() => { if (!document.hidden) void loadStats() }, 30_000)
     return () => { clearInterval(t); clearInterval(u) }
   }, [load, loadStats])
 
@@ -1000,8 +1001,11 @@ function Gate({ orders, onDone }: { orders: OrderRow[]; onDone: () => void }) {
           ))}
         </p>
       )}
+      {/* The result has its own space from the start, so what is below doesn't jump when a ticket is checked. */}
+      <div className="mt-3 min-h-[10.5rem]">
+      {!found && !note && <p className="rounded-2xl bg-canvas px-4 py-3 text-sm text-soft">{busy ? 'Checking…' : 'Check a ticket to see who it covers and let them in.'}</p>}
       {found && t && (
-        <div className={`mt-3 rounded-2xl p-4 ${t.state === 'valid' ? 'bg-good-wash' : t.state === 'expired' ? 'bg-amber-wash' : 'bg-fill'}`}>
+        <div className={`rounded-2xl p-4 ${t.state === 'valid' ? 'bg-good-wash' : t.state === 'expired' ? 'bg-amber-wash' : 'bg-fill'}`}>
           <p className={`text-lg font-bold ${t.state === 'valid' ? 'text-good' : t.state === 'expired' ? 'text-amber' : 'text-soft'}`}>
             {t.state === 'valid' ? `Valid: ${left} ${left === 1 ? 'person' : 'people'} to let in` : t.state === 'expired' ? 'Expired: don’t admit' : 'Already used: don’t admit'}
           </p>
@@ -1022,8 +1026,9 @@ function Gate({ orders, onDone }: { orders: OrderRow[]; onDone: () => void }) {
         </div>
       )}
       {note && (
-        <div className="mt-3"><Notice tone={note.ok ? 'good' : 'bad'}>{note.text} {note.tx && <TxLink hash={note.tx} />}</Notice></div>
+        <div className={found ? 'mt-3' : ''}><Notice tone={note.ok ? 'good' : 'bad'}>{note.text} {note.tx && <TxLink hash={note.tx} />}</Notice></div>
       )}
+      </div>
       {scanning && <Scanner title="Scan a ticket" hint="Point the camera at the code on the customer’s ticket." onClose={() => setScanning(false)} onCode={(text) => { setScanning(false); void check(text) }} />}
     </Card>
   )

@@ -34,6 +34,11 @@ def answer(near_id: str, yes: bool) -> bool:
     return True
 
 
+def _plain(text: str) -> str:
+    """Replies are shown as plain text, so the marks a model adds for bold or code would show as symbols."""
+    return re.sub(r"(\*\*|__|`)(.+?)\1", r"\2", text or "").strip()
+
+
 def _title(text: str) -> str:
     text = " ".join(text.split())
     return text if len(text) <= 60 else text[:57].rstrip() + "…"
@@ -328,7 +333,7 @@ async def run(account: Account, text: str, thread_id: str | None, emit: Emit) ->
                 said = await _scripted(h, text)
             except Exception:
                 said = "Something went wrong on my side and nothing was paid. Try again in a moment."
-    said = said or "I'm not sure how to help with that. Ask about your balance, or tell me what to buy."
+    said = _plain(said) or "I'm not sure how to help with that. Ask about your balance, or tell me what to buy."
     await _save(me, t.id, "agent", said, h.order_id)
     await emit({"t": "say", "text": said})
 
@@ -403,6 +408,6 @@ async def run_shop(account: Account, text: str, thread_id: str | None, emit: Emi
             said = await summary()
         except Exception:
             said = "I couldn't read the shop's figures just now. Try again in a moment."
-    said = said or "I'm not sure how to help with that. Ask about sales, stock, subscribers or the balance."
+    said = _plain(said) or "I'm not sure how to help with that. Ask about sales, stock, subscribers or the balance."
     await _save(me, t.id, "agent", said)
     await emit({"t": "say", "text": said})

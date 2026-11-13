@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { api, stream, type Ev } from '@shared/api'
+import { api, stream, type Ev, type ReceiptData } from '@shared/api'
 import { digits } from '@shared/Confirm'
 import { Button, Card, fmt, usd } from '@shared/ui'
 import type { Shop } from './ShopPage'
@@ -35,10 +35,24 @@ export default function Counter({ shop }: { shop: Shop & { charges?: Charge[] } 
   // The cashier may key the amount in after this page is open.
   useEffect(() => {
     const t = setInterval(() => {
-      api<{ charges: Charge[] }>(`/api/shops/${shop.near_id}`).then((s) => setCharges(s.charges)).catch(() => {})
+      if (!document.hidden) api<{ charges: Charge[] }>(`/api/shops/${shop.near_id}`).then((s) => setCharges(s.charges)).catch(() => {})
     }, 3000)
     return () => clearInterval(t)
   }, [shop.near_id])
+
+  // After paying, the pass on screen follows the till: it turns to "Collected" when the cashier hands over.
+  const pass = events.find((e) => e.t === 'receipt' && !!e.pickup_code)
+  const passId = pass?.t === 'receipt' ? pass.id : undefined
+  useEffect(() => {
+    if (!passId) return
+    const t = setInterval(() => {
+      if (document.hidden) return
+      api<ReceiptData>(`/api/receipts/${passId}`).then((r) => {
+        setEvents((all) => all.map((e) => (e.t === 'receipt' && e.id === passId ? { ...e, ticket: r.ticket } : e)))
+      }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(t)
+  }, [passId])
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [events.length])
@@ -99,7 +113,8 @@ export default function Counter({ shop }: { shop: Shop & { charges?: Charge[] } 
         </Card>
       ))}
 
-      {!running && !paid && shop.verified && (
+      {/* A shop that lists no prices and sells by subscription (an internet provider) has nothing to buy by amount. */}
+      {!running && !paid && shop.verified && (listed || shop.plans.length === 0) && (
         <Card className="space-y-4">
           <div>
             <h2 className="text-lg font-bold">{waiting.length ? 'Or buy by amount' : 'How much do you want to spend?'}</h2>

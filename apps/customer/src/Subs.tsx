@@ -120,6 +120,12 @@ export function Plans({ plans, shop }: { plans: PlanRow[]; shop: string }) {
   const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState('')
   const { ask, sheet } = useConfirm()
+  // Plans this person already has, so the page offers "View" and not a second "Subscribe".
+  const [mine, setMine] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!plans?.length) return
+    api<Sub[]>('/api/subscriptions').then((all) => setMine(new Set(all.filter((s) => s.status !== 'cancelled' && s.shop === shop).map((s) => s.plan)))).catch(() => {})
+  }, [plans?.length, shop])
   if (!plans?.length) return null
   const join = async (p: PlanRow) => {
     if (busy) return
@@ -146,7 +152,7 @@ export function Plans({ plans, shop }: { plans: PlanRow[]; shop: string }) {
               <span className="block font-semibold">{p.name}</span>
               <span className="num text-sm text-soft">{fmt(p.price)} {p.every}</span>
             </span>
-            {done === p.id
+            {done === p.id || mine.has(p.name)
               ? <Link to="/subs" className="rounded-full bg-good-wash px-3.5 py-2 text-sm font-semibold text-good">Subscribed. View</Link>
               : <Button tone="dark" disabled={busy !== null} onClick={() => join(p)} className="!px-4 !py-2 text-sm">{busy === p.id ? 'Subscribing…' : 'Subscribe'}</Button>}
           </li>

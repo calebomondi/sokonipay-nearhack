@@ -9,7 +9,7 @@ import httpx
 
 from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -59,6 +59,12 @@ app.add_middleware(
     CORSMiddleware, allow_origins=[o.strip() for o in settings.allowed_origins.split(",") if o.strip()],
     allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.exception_handler(near.ContractError)
+async def chain_said_no(_, e: near.ContractError):
+    """A chain error no endpoint handled itself, most often the network being busy. Say so plainly."""
+    return JSONResponse({"detail": f"{e.reason[:1].upper()}{e.reason[1:]}."}, status_code=503)
 
 
 # ---------------------------------------------------------------- helpers

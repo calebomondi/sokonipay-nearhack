@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
     # NEAR
-    near_rpc_url: str = "https://test.rpc.fastnear.com"
+    # One address, or several separated by commas: the next is used when one refuses or is rate-limited.
+    near_rpc_url: str = "https://test.rpc.fastnear.com,https://rpc.testnet.fastnear.com,https://near-testnet.drpc.org"
     contract_id: str = "sokonipay.testnet"
     token_id: str = "susd.sokonipay.testnet"
     # Full-access key of contract_id: creates sub-accounts, verifies shops, funds the demo faucet.
