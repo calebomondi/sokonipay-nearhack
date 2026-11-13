@@ -38,14 +38,14 @@ Each row is something to do and what you should see. All money is demo money.
 
 | Do this | See this |
 |---|---|
-| Sign in with Google | A balance of about KES 6,500 (50 demo dollars) and the card "Agent spend limit today" |
+| Sign in with Google | A balance of about KES 6,500 (50 demo dollars) and the card "Agent spend limit today": up to about KES 2,600 per payment and KES 10,400 a day. Your agent can spend only inside these; the contract checks them on every payment. |
 | Home → "All shops" → "Nairobi Arboretum" → pick 2 Adult → "Get 2 tickets" | The two agents' conversation, then a green ticket with a ticking clock and a QR code. The balance drops. "See the payment on NEAR" opens the transaction. |
-| On the same page pick 20 Adult and buy | A red box: "The contract refused this payment", naming the per-payment limit. Nothing is paid. The refused transaction is linked. |
+| On the same page pick 20 Adult and buy | The venue's agent may offer its group discount first. Then a red box: "The contract refused this payment", naming the per-payment limit. Nothing is paid. The refused transaction is linked. |
 | Home → "Limits" → lower the per-payment limit → buy again | The contract now refuses a smaller purchase. Only you can change limits; the agent cannot. |
 | "Kilimani Service Station" → pick Diesel → type `1500` | "KES 1,500 buys 12 litres of Diesel at KES 125 a litre." You name the money; the station's agent works out the quantity from its price list. Pay, and you get a three-digit code to show the cashier. |
-| "Chat" → type `Get me 2 adult tickets at the Arboretum` | The agent finds the venue and agrees a price, then stops at "Shall I pay?". Nothing is paid until you tap "Yes, pay". The agent-to-agent conversation can be opened and read. |
-| "Chat" → tap the speaker icon at the top, then the microphone → say "What's my balance?" → stop talking | About a second after you stop, your words appear as your message (ElevenLabs speech to text), then the answer, read aloud (ElevenLabs text to speech). You don't tap anything to finish. Say nothing and it stops after 6 seconds with "I didn't hear anything". |
-| "Mama Njeri's Kitchen" → choose 2 people → type `lunch for two` | The agents agree a meal. If a discount rule fits, the stall's agent gives the full discount that rule allows and names it. Your share goes into escrow in the contract, and a link lets a friend pay theirs. The stall is paid once, when the last share arrives. If the bill expires first, every share comes back. |
+| "Chat" → type `Get me 2 adult tickets at the Arboretum` | The agent finds the venue and agrees a price with the venue's agent (their conversation is shown as it happens), then stops at "Shall I pay Nairobi Arboretum?" with the total. Nothing is paid until you tap "Yes, pay". Tap "Not now": nothing is paid, and the agent says so. |
+| "Chat" → tap the speaker icon at the top, then the microphone (allow it when the browser asks) → say "What's my balance?" → stop talking | About a second after you stop, your words appear as your message (ElevenLabs speech to text), then the answer, read aloud (ElevenLabs text to speech). You don't tap anything to finish. Say nothing and it stops after 6 seconds with "I didn't hear anything". |
+| "Mama Njeri's Kitchen" → choose 2 people → type `lunch for two` → "Send my agent" | The agents agree a meal. If a discount rule fits, the stall's agent gives the full discount that rule allows and names it ("10% off for groups of 2 or more"). Your share goes into escrow in the contract, and "Copy link" gives a link for a friend to pay theirs. The stall is paid once, when the last share arrives. If the bill expires first (after an hour), every share comes back. |
 | "Kasarani Fibre" → subscribe to a plan | An in-app confirmation, then a monthly mandate written to the contract and the first bill paid. Under "Subs" you can pause, resume or cancel. The contract refuses a bill that is early, for a different amount, or after cancelling. |
 | Home → "Add money" → pick a chain and a stablecoin → 25 | A live quote from NEAR Intents. "Try it with demo money" credits the quoted amount in demo dollars. |
 | "Activity" | Every payment, refund, held share and top-up, red for money out and green for money in |
@@ -56,13 +56,13 @@ Use the same Google account or another one.
 
 | Do this | See this |
 |---|---|
-| Sign in → choose a kind of business (venue, food stall, counter) → name it → add prices in KES | A live preview of the business as customers will see it, then "Opening your shop" (about 25 seconds: a NEAR account, the onchain register, an agent key) |
+| Sign in → choose a kind of business (venue, food stall, counter) → name it → for a venue or stall, add prices in KES | A live preview of the business as customers will see it, then "Opening your shop" (about 20 seconds: a NEAR account, the onchain register, an agent key). A counter adds its items afterwards under "Price list", for example Bread, 65, for each loaf, "Whole only". |
 | Look at the console | "Not verified yet", and no code. A new business is hidden from customers until it is verified on the onchain register. |
 | Click "Verify my shop (demo)" | The shop is put on the register with the contract's `set_verified`, the same call an admin sends, and the console shows its code. This button exists only in the hosted demo, and only for your own new shop (see "Verifying businesses" below). |
-| In the user app, find your business and buy from it | The sale appears in the console without a reload: Today, the sales chart, and for a counter the "To hand over" list with the customer's code |
+| In the user app, find your business and buy from it (for the counter above: Bread, `200`) | "KES 200 buys 3 loaves of Bread at KES 65 a loaf. I'll charge KES 195, not KES 200." The sale appears in the console without a reload: Today, the sales chart, and for a counter the "To hand over" list with the customer's code |
 | Counter: click "Handed over" on that sale | A `redeem` on the contract. It can happen once, and after it the contract refuses a refund. The customer's pass turns to "Collected". |
 | Refund a sale that hasn't been handed over or used | The contract returns the money to whoever paid. The customer sees it in Activity. |
-| "Ask your agent" → `How did we do today?`, typed or spoken with the microphone | An answer from the business's real figures. This agent reads and changes nothing. |
+| "Ask your agent" → `How did we do today?`, typed or spoken with the microphone | An answer from the business's real figures, for example sales, refunds and net for the day. This agent reads and changes nothing. |
 | Counter: "Read payments aloud" on the till | Each new payment is announced as it arrives, so a cashier serving a queue doesn't have to watch the screen |
 | Settings → split 10% to savings, then sell again | The contract divides the next sale in the same transaction. "Daily statement" shows it, and downloads as CSV. |
 

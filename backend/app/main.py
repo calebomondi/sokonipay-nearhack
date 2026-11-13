@@ -952,10 +952,11 @@ async def shop_facts(account: Account) -> dict:
             Subscription.shop_near_id == account.near_id, Subscription.status == "needs_money")) or 0
         refused = list(await s.scalars(select(AgentLog).where(AgentLog.shop_near_id == account.near_id, AgentLog.kind == "refused")
                                        .order_by(AgentLog.at.desc()).limit(3)))
+        opened = await s.scalar(select(Shop.created_at).where(Shop.near_id == account.near_id))
     peak = max(range(24), key=lambda h: st["hours"][h])
     week = st["days"][-7:]
     return {
-        "shop": con["name"], "type": con["kind"], "verified": con["verified"], "hours": con["hours"], "open_now": con["open"],
+        "shop": con["name"], "opened_on": opened.date().isoformat() if opened else None, "type": con["kind"], "verified": con["verified"], "hours": con["hours"], "open_now": con["open"],
         "balance": policy.fmt(con["balance"]),
         "set_aside": [{"to": x["account_id"].split(".")[0], "percent_of_each_sale": x["bps"] / 100, "balance": policy.fmt(x["balance"])} for x in con["splits"]],
         "today": {"sales_kes": st["today"]["sales"], "sales": st["today"]["count"], "refunds_kes": st["today"]["refunds"]},

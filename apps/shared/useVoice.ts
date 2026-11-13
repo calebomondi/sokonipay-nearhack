@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { send } from './api'
 
-export type Hearing = 'off' | 'on' | 'working'
+export type Hearing = 'off' | 'asking' | 'on' | 'working'
 
 const TICK_MS = 50
 const CALIBRATE_MS = 300 // the room's own noise is measured first, so a busy till doesn't count as speech
@@ -29,11 +29,13 @@ export function useVoice(onText: (text: string) => void, onError: (message: stri
 
   async function start() {
     if (hearing === 'on') return stop.current?.(true)
-    if (hearing === 'working') return
+    if (hearing === 'working' || hearing === 'asking') return
     let mic: MediaStream
+    setHearing('asking') // the browser may be showing its own "allow the microphone?" question
     try {
       mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     } catch {
+      setHearing('off')
       return failed.current('The microphone isn’t available. Allow it in your browser, or type instead.')
     }
     const rec = new MediaRecorder(mic)

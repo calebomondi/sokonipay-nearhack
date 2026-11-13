@@ -223,7 +223,7 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
       {!listing && (
         <form className="flex gap-2 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2" onSubmit={(e) => { e.preventDefault(); void send() }}>
           {voice && (
-            <button type="button" onClick={listen} disabled={!!live || hearing === 'working'} aria-pressed={hearing === 'on'} aria-label={hearing === 'on' ? 'Stop and send' : 'Speak to your agent'}
+            <button type="button" onClick={listen} disabled={!!live || hearing === 'working' || hearing === 'asking'} aria-pressed={hearing === 'on'} aria-label={hearing === 'on' ? 'Stop and send' : 'Speak to your agent'}
               className={`relative flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-full ring-1 ring-line disabled:opacity-60 ${hearing === 'on' ? 'bg-bad text-white' : 'bg-card hover:bg-fill'}`}>
               {/* Grows with the voice, so the person can see they are being heard. */}
               {hearing === 'on' && <span className="absolute inset-0 rounded-full bg-bad/35 transition-transform duration-75" style={{ transform: `scale(${1 + level * 0.7})` }} aria-hidden />}
@@ -232,7 +232,7 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
                 : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" /></svg>}
             </button>
           )}
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={!!live || hearing !== 'off'} placeholder={hearing === 'on' ? 'Listening… stop talking to send' : hearing === 'working' ? 'Working out what you said…' : live ? 'Your agent is working…' : 'Ask, or say what to buy'} aria-label="Message your agent"
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={!!live || hearing !== 'off'} placeholder={hearing === 'asking' ? 'Allow the microphone in your browser…' : hearing === 'on' ? 'Listening… stop talking to send' : hearing === 'working' ? 'Working out what you said…' : live ? 'Your agent is working…' : 'Ask, or say what to buy'} aria-label="Message your agent"
             className="min-w-0 flex-1 rounded-full bg-card px-5 py-3.5 outline-none ring-1 ring-line placeholder:text-soft focus:ring-2 focus:ring-iris disabled:opacity-60" />
           <Button disabled={!!live || !text.trim()} aria-label="Send" className="!px-4">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 19V5M6 11l6-6 6 6" /></svg>

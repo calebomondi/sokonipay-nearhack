@@ -173,7 +173,7 @@ export function AgentPanel({ shop }: { shop: string }) {
         {!listing && (
           <form className="flex gap-2 border-t border-line p-3" onSubmit={(e) => { e.preventDefault(); void ask() }}>
             {voice && (
-              <button type="button" onClick={listen} disabled={working || hearing === 'working'} aria-pressed={hearing === 'on'} aria-label={hearing === 'on' ? 'Stop and send' : 'Speak to your agent'}
+              <button type="button" onClick={listen} disabled={working || hearing === 'working' || hearing === 'asking'} aria-pressed={hearing === 'on'} aria-label={hearing === 'on' ? 'Stop and send' : 'Speak to your agent'}
                 className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-60 ${hearing === 'on' ? 'bg-bad text-white' : 'bg-fill hover:bg-line'}`}>
                 {hearing === 'on' && <span className="absolute inset-0 rounded-full bg-bad/35 transition-transform duration-75" style={{ transform: `scale(${1 + level * 0.7})` }} aria-hidden />}
                 {hearing === 'on' ? <span className="relative h-3.5 w-3.5 rounded-[3px] bg-white" aria-hidden />
@@ -181,7 +181,7 @@ export function AgentPanel({ shop }: { shop: string }) {
               </button>
             )}
             <input ref={box} value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={working || hearing !== 'off'} aria-label="Ask your agent"
-              placeholder={hearing === 'on' ? 'Listening… stop talking to send' : hearing === 'working' ? 'Working out what you said…' : working ? 'Reading your figures…' : 'Ask about your shop'}
+              placeholder={hearing === 'asking' ? 'Allow the microphone in your browser…' : hearing === 'on' ? 'Listening… stop talking to send' : hearing === 'working' ? 'Working out what you said…' : working ? 'Reading your figures…' : 'Ask about your shop'}
               className="min-w-0 flex-1 rounded-full bg-fill px-4 py-2.5 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris disabled:opacity-60" />
             <Button disabled={working || !text.trim()} aria-label="Send" className="!px-3.5 !py-2.5">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 19V5M6 11l6-6 6 6" /></svg>

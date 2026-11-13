@@ -33,7 +33,7 @@ How to work:
 ## Part A. As a customer (user app)
 
 ### A1. Sign in
-Open the user app and sign in with the judge account. Expect a balance of about KES 6,500 (50 demo dollars) and a card "Agent spend limit today". Write down the balance and the two limits shown.
+Open the user app and sign in with the judge account. Expect a balance of about KES 6,500 (50 demo dollars) and a card "Agent spend limit today" with about KES 10,400 a day and "Up to KES 2,600 per payment". Write down the balance and the two limits shown. The whole script, Part A and Part B, must fit inside that day limit: if anything is refused "over the daily limit", report it as a failure.
 
 ### A2. Buy tickets
 Home → "All shops" → "Nairobi Arboretum" → pick 2 Adult → "Get 2 tickets". Expect the two agents' conversation, then a green ticket with a ticking clock and a QR code. The balance drops. Click "See the payment on NEAR": expect a NEAR explorer page for the transaction.
@@ -48,19 +48,19 @@ Home → "Limits" → lower the per-payment limit to KES 300 → save. Go back t
 "Kilimani Service Station" → pick Diesel → type `1500`. Expect "KES 1,500 buys 12 litres of Diesel at KES 125 a litre." Pay. Expect a pass with a three-digit code and "Ready to collect". Write the code down.
 
 ### A6. Chat
-"Chat" → type `Get me 2 adult tickets at the Arboretum`. Expect the agent to find the venue and agree a price, then stop at "Shall I pay?". Check that nothing is paid yet. Open the agent-to-agent conversation and read it. Tap "Not now". Expect "You said no, so nothing was ordered or paid."
+"Chat" → type `Get me 2 adult tickets at the Arboretum`. Expect the agent to find the venue and agree a price, then stop at "Shall I pay?". Check that nothing is paid yet. Open the agent-to-agent conversation and read it. Tap "Not now". Expect nothing paid, and the agent saying so in its reply.
 
 ### A7. Voice (you cannot speak, so check what you can)
 Still in Chat. If there is no microphone button and no speaker icon, write "voice not shown" and go to A8.
 1. Tap the speaker icon at the top. Expect it to turn on (blue).
-2. Tap the microphone button. Your browser may ask for the microphone: allow it.
+2. Tap the microphone button. While the browser is asking for the microphone, expect the box to say "Allow the microphone in your browser…". Allow it if you can.
    - If the browser has no microphone, expect "The microphone isn't available. Allow it in your browser, or type instead."
    - If it has one, expect the button to turn red and the box to say "Listening… stop talking to send". Say nothing. Expect it to stop by itself after about 6 seconds with "I didn't hear anything. Tap the microphone and speak, or type instead." Nothing is sent.
 3. Tap the microphone again, then tap it a second time straight away. Expect it to stop at once.
 4. Type `What's my balance?` and send. Expect an answer with the balance. A "Listen" link appears under the answer. You can't hear sound, so don't report on it.
 
 ### A8. A meal for two
-"Mama Njeri's Kitchen" → choose 2 people → type `lunch for two` → order. Expect the agents to agree a meal. If the order meets a discount rule, expect the stall's agent to give the full discount the rule allows and to name the rule (for example 10% for a group). Write down the discount and the rule named. Expect "Your share is paid. Waiting for 1 more." and a link for a friend. Do not pay the second share.
+"Mama Njeri's Kitchen" → choose 2 people → type `lunch for two` → "Send my agent". Expect the agents to agree a meal. If the order meets a discount rule, expect the stall's agent to give the full discount the rule allows and to name the rule ("10% off for groups of 2 or more"). Write down the discount and the rule named. Expect "Your share is paid. Waiting for 1 more." and "Copy link". Do not pay the second share.
 
 ### A9. A monthly plan
 "Kasarani Fibre" → subscribe to the cheapest plan. Expect an in-app confirmation (not a browser pop-up), then "Subscribed" and the first bill paid. Open "Subs": the plan is Active with a next payment date. Pause it, then resume it, then cancel it. Expect each to work and no second bill.
@@ -74,7 +74,7 @@ Open "Activity". Expect every step above that moved money: the Arboretum tickets
 ## Part B. As a business (console)
 
 ### B1. Open a counter
-Open the console and sign in with the judge account. Choose "A counter or till". Name it `Judge Test Kiosk`, place `Westlands, Nairobi`, description `A test kiosk opened by the judge script.` Click "Open my counter". Expect a live preview while you fill it in, then "Opening your shop" for about 25 seconds, then the console.
+Open the console and sign in with the judge account. Choose "A counter or till". Name it `Judge Test Kiosk`, place `Westlands, Nairobi`, description `A test kiosk opened by the judge script.` Click "Open my counter". Expect a live preview while you fill it in, then "Opening your shop" for about 20 seconds, then the console.
 
 Open the "Price list" tab and add one item: name `Bread`, price `65`, for each `loaf`, tick "Whole only", then "Add item". Expect only that button to say "Saving…", then the row "Bread · 65 · loaf, whole only".
 
@@ -90,16 +90,16 @@ In the user app, "All shops" → "Judge Test Kiosk" → pick Bread → type `200
 Back in the console, without reloading: expect the sale in Today, in the sales chart, and on the "To hand over" list with the same code.
 
 ### B5. Hand it over
-In the console, click "Handed over" on that sale. Expect "Handed over to … (code …)" and the sale to say "Can't refund: handed over". On the user app page you kept open, expect the pass to change to "Collected" within about 10 seconds, without a reload.
+In the console, click "Handed over" on that sale. Expect "Handed over to … (code …)" and the sale to say "Can't refund: handed over". The "Handed over" message goes away after a few seconds. On the user app page you kept open, expect the pass to change to "Collected" within about 10 seconds, without a reload.
 
 ### B6. A refund
-In the user app, buy Bread for `65` once more. In the console, refund that sale before handing it over. Expect an in-app confirmation, then "Refunded". In the user app's Activity, expect the refund in green.
+In the user app, buy Bread for `65` once more. In the console, refund that sale before handing it over. Expect an in-app confirmation, then "Refunding…" until it says "Refunded", without going back to "Refund in full" in between. In the user app's Activity, expect the refund in green.
 
 ### B7. Ask the business's agent
 Click "Ask your agent". Expect a panel to slide in with the cursor already in the box. Type straight away `How did we do today?` and send. Expect an answer that matches the console's figures (2 sales, 1 refunded). Check the microphone button behaves as in A7 if it is there.
 
 ### B8. Read payments aloud
-On the till, click "Read payments aloud". Expect it to turn blue and say "Reading payments aloud". You can't hear sound, so don't report on it. Click it again to turn it off.
+On the till, a new shop starts silent: expect "Read payments aloud" (grey). Click it. Expect it to turn blue and say "Reading payments aloud". You can't hear sound, so don't report on it. Click it again to turn it off.
 
 ### B9. Split a sale
 "Settings" → "Split every sale" → 10 to savings → "Save split". Expect "Saved. The next sale is split this way." In the user app, buy Bread for `65` once more. In the console, expect a Savings card with about KES 6. Open "Daily statement": expect the sales, the earlier refund as a row with a minus sign, "Net for the day" equal to sales less the refund, and the split under "Where the sales went". Then set the split back to 0 and save.

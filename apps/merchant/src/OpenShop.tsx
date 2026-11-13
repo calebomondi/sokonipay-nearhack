@@ -178,7 +178,7 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
                 {venue && <p className="mt-1.5 text-xs text-soft">A ticket works until closing time on the day it was bought.</p>}
               </fieldset>
             )}
-            {counter && <p className="rounded-2xl bg-canvas px-4 py-3 text-sm">A counter has no price list. For each sale you key in the amount in shillings, the customer scans your code, and their agent pays it.</p>}
+            {counter && <p className="rounded-2xl bg-canvas px-4 py-3 text-sm">You can add a price list once your counter is open ("Price list"), so customers can name the money: KES 1,500 of diesel. Without one, you key in each amount and the customer scans your code to pay it.</p>}
           </>
         )}
 
@@ -257,7 +257,7 @@ export default function OpenShop({ resume, isAdmin, another, onDone }: {
           {counter && <p className="mt-3 rounded-2xl bg-canvas px-4 py-3 text-sm text-soft">The amount you key in appears here for the customer to pay.</p>}
           <div className="mt-4 flex items-center gap-4 border-t border-line pt-4">
             <ShopCode value={`https://sokonipay.app/pay?m=${shown.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} name={shown} size={96} />
-            <p className="text-xs text-soft">Your own code, in your shop’s colour. It works once SokoniPay has verified you. The checkmark appears then too.</p>
+            <p className="text-xs text-soft">Your own code, in your shop’s colour. It works once SokoniPay has verified you. Until then customers can't find you, and the checkmark above is how you'll look once verified.</p>
           </div>
         </div>
       </aside>

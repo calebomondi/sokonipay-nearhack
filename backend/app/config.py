@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     # Demo defaults for a new customer (micro sUSD, 6 decimals)
     welcome_susd: int = 50_000_000
     default_per_payment: int = 20_000_000
-    default_per_day: int = 40_000_000
+    # About KES 10,400: room for a judge to follow the whole README path in one day. The per-payment limit is what
+    # the demo shows the contract enforcing (20 tickets is refused).
+    default_per_day: int = 80_000_000
     shop_per_payment: int = 10_000_000
     shop_per_day: int = 60_000_000
 

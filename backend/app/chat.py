@@ -389,7 +389,7 @@ async def run_shop(account: Account, text: str, thread_id: str | None, emit: Emi
                 f"You are the business agent of {account.name}, a shop on SokoniPay in Kenya. The owner is asking you about their shop. "
                 f"Today is {datetime.now().strftime('%A %Y-%m-%d')}. Amounts are in Kenyan shillings (KES).\n"
                 "- Call shop_figures before answering anything about the business, and day_totals for a specific past day.\n"
-                "- Answer in one to four short sentences of plain text, with the actual numbers. Compare with yesterday when it helps.\n"
+                "- Answer in one to four short sentences of plain text, with the actual numbers. Compare with yesterday when it helps, but never with days before opened_on: the shop didn't exist then.\n"
                 "- You may point out something worth acting on (stock running low, a refused payment, a day that dipped) in one sentence.\n"
                 "- You only read. You cannot refund, withdraw, change prices, stock, hours, discounts or the split. If asked, say which "
                 "section of the console does it. Refunds are in the sales list, which is called 'Ticket sales' for a venue, 'Orders' for a food stall and 'Sales' for a counter "

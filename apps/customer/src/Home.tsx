@@ -123,7 +123,7 @@ export default function Home({ hasShop }: { hasShop: boolean }) {
     })),
     ...wallet.receipts.filter((r) => r.status !== 'Open' && r.status !== 'Returned').map((r): Move => ({
       key: r.id, at: r.paid_at_ms ?? 0, amount: -(r.my_share ?? r.total), title: r.shop, shop: true, to: `/r/${r.id}`, ticket: r.kind === 'Ticket',
-      note: r.pickup_code ? `Bought at the counter${r.ticket?.state === 'used' ? ', collected' : ', to collect'}` : r.kind === 'Ticket' ? `Entry ticket${r.status === 'Paid' && r.ticket && r.ticket.state !== 'valid' ? `, ${r.ticket.state}` : ''}` : r.kind === 'Group' ? 'Your share of a split bill' : r.subscription ? r.subscription.replace(/ subscription$/, ', subscription') : 'Order',
+      note: r.pickup_code ? `Bought at the counter${r.status === 'Refunded' ? ', refunded' : r.ticket?.state === 'used' ? ', collected' : ', to collect'}` : r.kind === 'Ticket' ? `Entry ticket${r.status === 'Paid' && r.ticket && r.ticket.state !== 'valid' ? `, ${r.ticket.state}` : ''}` : r.kind === 'Group' ? 'Your share of a split bill' : r.subscription ? r.subscription.replace(/ subscription$/, ', subscription') : 'Order',
     })),
     ...wallet.receipts.filter((r) => r.status === 'Refunded').map((r): Move => ({
       key: 'back-' + r.id, at: r.refunded_at_ms ?? r.paid_at_ms ?? 0, amount: r.my_share ?? r.total, title: r.shop, shop: true, to: `/r/${r.id}`, ticket: r.kind === 'Ticket',

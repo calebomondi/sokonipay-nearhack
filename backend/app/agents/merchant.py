@@ -190,22 +190,23 @@ class LlmMerchant:
             args = out["messages"][-1].tool_calls[0]["args"]
             q = d.quote(wanted, bps)
             # The model's sentence may quote a total it computed itself. Ours is the one that counts.
-            q["note"] = self._note(q, str(args.get("note", "")), asked)
+            q["note"] = self._note(q, str(args.get("note", "")), asked, why)
             return q
         except Exception:
             return await self._fallback.handle(msg)
 
     @staticmethod
-    def _note(q: dict, said: str, asked: bool) -> str:
-        """Use the model's sentence only if it states our total. Otherwise say it plainly."""
+    def _note(q: dict, said: str, asked: bool, why: str = "") -> str:
+        """Use the model's sentence only if it states our total and, with a discount, the owner's rule that allows it.
+        Otherwise say it plainly."""
         total, said = fmt(q["total"]), said.strip()
-        if said and total in said:
+        if said and total in said and (not q["discount_bps"] or not why or why in said):
             return said
         warm = f"{said.rstrip('.!')}. " if said and not any(ch.isdigit() for ch in said) else ""
         if not asked:
             return f"{warm}That comes to {total}."
         if q["discount_bps"]:
-            return f"{warm}I can take {q['discount_bps'] / 100:g}% off: {total}."
+            return f"{warm}I can take {q['discount_bps'] / 100:g}% off{' for ' + why if why else ''}: {total}."
         return f"{warm}{total} is already my best price for this order."
 
 

@@ -113,8 +113,8 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
     } catch (e) {
       setNotRefunded({ id: o.id, text: (e as Error).message })
     } finally {
+      await load() // keep "Refunding…" until the list shows the refund, so it never looks undone
       setRefunding(null)
-      void load()
     }
   }
 
@@ -273,7 +273,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
             <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
               <div className="space-y-6 print:hidden">
-                {counter && live && <Till orders={d.orders} voice={d.voice} onDone={() => load()} />}
+                {counter && live && <Till key={d.near_id} shop={d.near_id} orders={d.orders} voice={d.voice} onDone={() => load()} />}
                 {counter && live && <Charge charges={d.charges} shopId={d.near_id} shopName={d.name} onDone={() => load()} />}
                 {venue && <Gate orders={d.orders} onDone={() => load()} />}
                 <section className="space-y-3">
@@ -641,13 +641,21 @@ async function sayAloud(text: string, voice: boolean) {
  * The cashier checks the code on the customer's screen, hands over, and marks it. The contract takes a hand-over once,
  * and refuses a refund after it.
  */
-function Till({ orders, voice, onDone }: { orders: OrderRow[]; voice: boolean; onDone: () => unknown }) {
-  const [sound, setSound] = useState(() => localStorage.getItem(SOUND_KEY) === '1')
+function Till({ shop, orders, voice, onDone }: { shop: string; orders: OrderRow[]; voice: boolean; onDone: () => unknown }) {
+  // Remembered for each shop on this browser, so a new shop starts silent.
+  const soundKey = `${SOUND_KEY}.${shop}`
+  const [sound, setSound] = useState(() => { try { return localStorage.getItem(soundKey) === '1' } catch { return false } })
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
   const paid = orders.filter((o) => o.status === 'paid' && o.invoice_id)
   const waiting = paid.filter((o) => o.code && o.admitted === 0)
   const seen = useRef<Set<string> | null>(null)
+  // "Handed over to …" is about the last action only: it goes after a few seconds, or when the next payment arrives.
+  useEffect(() => {
+    if (!note) return
+    const t = setTimeout(() => setNote(null), 8000)
+    return () => clearTimeout(t)
+  }, [note])
 
   // Read each new payment aloud once. Payments already on the list when the page opened stay silent.
   useEffect(() => {
@@ -655,6 +663,7 @@ function Till({ orders, voice, onDone }: { orders: OrderRow[]; voice: boolean; o
     for (const o of paid) {
       if (seen.current.has(o.id)) continue
       seen.current.add(o.id)
+      setNote(null)
       const what = (o.lines ?? []).map((l) => (l.qty > 1 ? `${l.qty} ${l.name}` : l.name)).join(', ')
       if (sound) void sayAloud(`Paid. ${fmt(o.total ?? 0)} from ${o.customer.split(' ')[0]}${what ? `, for ${what}` : ''}.${o.code ? ` Code ${o.code.split('').join(' ')}.` : ''}`, voice)
     }
@@ -663,7 +672,7 @@ function Till({ orders, voice, onDone }: { orders: OrderRow[]; voice: boolean; o
   const toggle = () => {
     const on = !sound
     setSound(on)
-    localStorage.setItem(SOUND_KEY, on ? '1' : '0')
+    try { localStorage.setItem(soundKey, on ? '1' : '0') } catch { /* private mode: it just isn't remembered */ }
     if (on) void sayAloud('Sound is on. Payments will be read out.', voice) // the click also lets the browser play later ones
   }
   const hand = async (o: OrderRow) => {
