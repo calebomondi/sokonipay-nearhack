@@ -52,7 +52,8 @@ Do the parts in order:
 5. Part 5: merchant end, the gate, refunds, money and the statement.
 6. Part 6: the food stall, both ends (second Google account).
 7. Part 7: a second shop on one account (a counter).
-8. Part 8: checks across both sites.
+8. Part 8: an internet provider with monthly plans, and a user who subscribes.
+9. Part 9: checks across both sites.
 
 ---
 
@@ -405,7 +406,46 @@ Sign in to the console with the admin account.
 
 ---
 
-## Part 8. Checks across both sites
+## Part 8. An internet provider with monthly plans
+
+A business that sells nothing over a counter: home internet at three speeds, billed monthly. The second account opens it, the admin verifies it, and the user subscribes.
+
+### N1. Open the provider and verify it
+1. Sign in to the console with the second account (the stall's owner). Open the shop switcher and click "Open another shop". Pick "A counter or till".
+2. Name it `Kasarani Fibre`, place `Kasarani, Nairobi`, description `Home internet on fibre. Pick a speed, pay monthly, cancel any time.` Click "Open my counter". Expect the new shop's console in about 25 seconds, "Not verified yet".
+3. Sign in to the console with the admin account, open "Admin" and click "Verify shop" on Kasarani Fibre. Expect "Approved". Sign back in with the second account and switch to Kasarani Fibre.
+
+### N2. Add the plans
+1. Open "Subscriptions". Add three plans, each "every month": `Home 10 Mbps` at `2500`, `Home 30 Mbps` at `4000`, `Home 100 Mbps` at `7000`.
+2. Expect all three listed cheapest first, each with its price, "a month" and "0 subscribers".
+3. Try to add a plan with the price `0`. Expect the "Add plan" button greyed.
+
+### N3. Subscribe as the user
+1. In the user app (the user account), make sure the balance is at least KES 12,000, the per-payment limit is KES 5,000 and the daily limit at least KES 15,000. Add money (demo top-ups stop once the balance reaches 100 sUSD, about KES 13,000) or change the limits if not.
+2. Open "All shops" and then Kasarani Fibre. Expect the header card with the description, then a "Subscriptions" card with the three plans and their monthly prices.
+3. Click "Subscribe" on `Home 30 Mbps`. Expect an in-app sheet "Subscribe to Home 30 Mbps?" naming KES 4,000 a month. Click "Cancel": nothing happens. Click "Subscribe" again and confirm. Expect "Subscribed. View" within about 20 seconds.
+4. Open "Subs". Expect "Home 30 Mbps", "Kasarani Fibre · KES 4,000 a month" and a green "Active". Open it. Within about a minute expect the first payment, "−KES 4,000" in red, and "Next payment" about one month ahead.
+5. Expect the balance down by KES 4,000 and, in Activity, a "−KES 4,000" line marked "Home 30 Mbps, subscription".
+6. Go back to Kasarani Fibre's page and click "Subscribe" on `Home 30 Mbps` again. Expect "You already have this subscription." and no second payment.
+
+### N4. What the provider sees
+1. In the provider's console (second account), open "Subscriptions". Expect `Home 30 Mbps` with "1 subscriber" and the other two with 0.
+2. Open "Sales". Expect a paid sale of KES 4,000 from the user for "Home 30 Mbps". Overview's "Today" shows KES 4,000 and the Balance is up by the same.
+3. Open the agent panel and ask `How many subscribers do I have?` Expect an answer naming one subscriber on Home 30 Mbps.
+
+### N5. The contract's limits on the provider
+1. Check the balance is still above KES 7,000. Subscribe to `Home 100 Mbps` (KES 7,000), which is over the KES 5,000 per-payment limit. Expect the subscription to appear in "Subs" and, within about a minute, the note "The contract refused the last payment: … Your agent tries again in an hour." **No** KES 7,000 is taken, and the provider's console lists a refused payment under "What your agent did".
+2. Cancel `Home 100 Mbps`. Expect "Cancelled" and no payment for it afterwards.
+
+### N6. Change speed, then leave
+1. Subscribe to `Home 10 Mbps`. Expect a first payment of KES 2,500 within about a minute. Both `Home 30 Mbps` and `Home 10 Mbps` are now "Active".
+2. Open `Home 30 Mbps` in "Subs" and click "Cancel". Expect an in-app sheet; confirm. Expect "Cancelled". The provider's console shows 0 subscribers on 30 Mbps and 1 on 10 Mbps.
+3. Click "Pause" on `Home 10 Mbps`. Expect "Paused" and the note that your agent refuses bills until you resume. Click "Resume". Expect "Active" and no extra payment, because this month is already paid.
+4. In the provider's console refund the KES 2,500 sale. Expect "Refunded" and the user's balance up by KES 2,500.
+
+---
+
+## Part 9. Checks across both sites
 
 1. **Money adds up (user).** Starting balance + money added + refunds received − payments − withdrawals = the balance shown. Work in sUSD where you can; in KES allow a few shillings of rounding.
 2. **Money adds up (venue).** Balance + Savings + Partner now = the same total at the start + today's ticket sales − refunds − withdrawals.
@@ -434,15 +474,15 @@ Write it in this shape so it can be pasted back to the developer.
 
 **1. Summary.** Three or four sentences: which addresses you tested (hosted or local), how far you got, what works, and the most serious problems. Say plainly what you could not test.
 
-**2. Results: user end.** One row per step (S0.1, U1 to U16, C1 to C5, F2 to F5).
+**2. Results: user end.** One row per step (S0.1, U1 to U16, C1 to C5, F2 to F5, N3, N5, N6).
 
 | Step | Result | What you saw |
 |---|---|---|
 | U1 | Pass / Fail / Partly / Skipped | One line. For anything but a pass, the exact words on screen. |
 
-**3. Results: merchant end.** The same table for S0.2, S0.3, M1 to M12, F1, F6 and S1 to S6.
+**3. Results: merchant end.** The same table for S0.2, S0.3, M1 to M12, F1, F6, S1 to S6, N1, N2 and N4.
 
-**4. Results: across both sites.** The same table for Part 8, items 1 to 10.
+**4. Results: across both sites.** The same table for Part 9, items 1 to 10.
 
 **5. Problems, most serious first.** For each one:
 - Which end (user, merchant, admin) and which step.
