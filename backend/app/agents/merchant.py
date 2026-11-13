@@ -24,10 +24,13 @@ from app.policy import Line, fmt
 class Desk:
     def __init__(self, shop_id: str, shop_name: str, rules: dict, items: list[dict], agent_key: str,
                  customer_id: str, is_group: bool, hours: dict | None = None, party_size: int = 1, visits: int = 0,
-                 fixed: bool = False):
+                 fixed: bool = False, handover: bool = False, says: str = ""):
         self.shop_id, self.shop_name, self.rules, self.items = shop_id, shop_name, rules, items
         self.hours, self.party_size, self.visits = hours, party_size, visits
         self.fixed = fixed  # the customer picked exactly what to buy (tickets, a counter sale)
+        # A counter sale paid before the goods change hands: issued as a one-use pass the cashier redeems on hand-over.
+        self.handover = handover
+        self.says = says  # what the amount buys, worked out from the shop's price list
         self._key, self.customer_id, self.is_group = agent_key, customer_id, is_group
         self.quotes: dict[str, dict] = {}
 
@@ -48,15 +51,11 @@ class Desk:
         lines, missing = policy.price_request(self.items, wanted)
         if not lines:
             return {"type": "error", "note": f"We're out of {', '.join(missing) or 'that'}."}
-        if policy.is_ticket(self.items, lines):
-            gate = policy.gate_now(self.hours)
-            if not gate.open:
-                return {"type": "error", "note": gate.says}
         bps = max(0, min(int(discount_bps), self.max_discount_bps(lines)))
         sub = policy.subtotal(lines)
         q = {"type": "quote", "quote_id": "q-" + secrets.token_hex(3), "lines": [line.dict() for line in lines],
              "subtotal": sub, "discount_bps": bps, "total": policy.apply_discount(sub, bps), "missing": missing, "note": note,
-             "negotiable": bps < self.max_discount_bps(lines)}
+             "negotiable": bps < self.max_discount_bps(lines), "buys": self.says}
         self.quotes[q["quote_id"]] = q
         return q
 
@@ -66,21 +65,23 @@ class Desk:
         if q is None:
             return {"type": "error", "note": "I don't have that quote. Ask for a new one."}
         lines = [Line(**line) for line in q["lines"]]
-        kind = "Ticket" if policy.is_ticket(self.items, lines) else "Group" if self.is_group else "Single"
+        ticket = policy.is_ticket(self.items, lines)
+        kind = "Ticket" if ticket or self.handover else "Group" if self.is_group else "Single"
         invoice_id = {"Ticket": "tkt", "Group": "grp", "Single": "ord"}[kind] + "-" + secrets.token_hex(5)
         args = {
             "id": invoice_id, "amount": str(q["total"]), "kind": kind, "expires_in_sec": 3600 if kind == "Group" else 900,
             "items_hash": hashlib.sha256(json.dumps(q["lines"], sort_keys=True).encode()).hexdigest(),
             "payer": None if kind == "Group" else self.customer_id,
         }
-        if kind == "Ticket":
-            # The ticket itself: one entry per ticket bought, good until closing time today.
+        if ticket:
+            # The ticket itself: one entry per ticket bought, good until closing time. One sold while the
+            # venue is closed is for its next opening.
             gate = policy.gate_now(self.hours)
-            if not gate.open:
-                return {"type": "error", "note": gate.says}
             args["admits"] = min(100, sum(line.qty for line in lines))
             if gate.closes_at_ms:
                 args["valid_until_ms"] = gate.closes_at_ms
+        elif kind == "Ticket":
+            args["admits"] = 1  # handed over once
         sent = await near.call(self.shop_id, self._key, "create_invoice", args)
         return {"type": "invoice", "invoice_id": invoice_id, "total": q["total"], "kind": kind, "tx_hash": sent.tx_hash,
                 "lines": q["lines"], "quote_id": quote_id}
@@ -101,7 +102,9 @@ class ScriptedMerchant:
             q = d.quote(msg["items"])
             if q["type"] == "quote":
                 out = f"We're out of {', '.join(q['missing'])}. " if q["missing"] else ""
-                q["note"] = f"{out}That comes to {fmt(q['total'])}."
+                gate = policy.gate_now(d.hours) if policy.is_ticket(d.items, [Line(**x) for x in q["lines"]]) else None
+                later = f" We're closed now, so this ticket is for {gate.ticket_day}." if gate and gate.ticket_day else ""
+                q["note"] = d.says or f"{out}That comes to {fmt(q['total'])}.{later}"
             return q
         if msg["type"] == "counter":
             old = d.quotes.get(msg.get("quote_id", ""))

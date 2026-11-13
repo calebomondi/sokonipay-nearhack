@@ -11,7 +11,9 @@ import Venue from './Venue'
 export type Shop = {
   near_id: string; name: string; blurb: string; place: string; verified: boolean; kind: string
   hours: { open: string; close: string } | null; open: boolean; gate_says: string
-  items: { sku: string; name: string; price: number; stock: number }[]
+  items: { sku: string; name: string; price: number; price_kes: number; stock: number; unit: string; whole: boolean }[]
+  /** For a venue that is closed: a ticket bought now is for "today" (it opens later) or "tomorrow". */
+  ticket_day: string; ticket_says: string
   plans: PlanRow[]
   hours_line: string; discounts_for: string[]
 }

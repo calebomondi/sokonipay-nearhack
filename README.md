@@ -37,14 +37,15 @@ Open https://sokonipay.up.railway.app.
 | Do this | See this |
 |---|---|
 | Sign in with Google | A balance of about KES 6,500 (50 demo dollars) and the card "Agent spend limit today" |
-| Home → "All shops" → "Nairobi Arboretum (demo)" → pick 2 Adult → "Get 2 tickets" | The two agents' conversation, then a green ticket with a ticking clock and a QR code. The balance drops. "See the payment on NEAR" opens the transaction. |
+| Home → "All shops" → "Nairobi Arboretum" → pick 2 Adult → "Get 2 tickets" | The two agents' conversation, then a green ticket with a ticking clock and a QR code. The balance drops. "See the payment on NEAR" opens the transaction. |
 | On the same page pick 20 Adult and buy | A red box: "The contract refused this payment", naming the per-payment limit. Nothing is paid. The refused transaction is linked. |
 | Home → "Limits" → lower the per-payment limit → buy again | The contract now refuses a smaller purchase. Only you can change limits; the agent cannot. |
 | "Chat" → type `Get me 2 adult tickets at the Arboretum` | The agent finds the shop and agrees a price, then stops at "Shall I pay?". Nothing is paid until you tap "Yes, pay". The agent-to-agent conversation can be opened and read. |
 | "Chat" → `What's my balance?` | An answer from your onchain balance and limits. With a microphone, tap the mic and say it instead. |
 | Home → "Add money" → pick Base → USDC → 25 | A live quote from NEAR Intents. "Try it with demo money" credits the quoted amount in demo dollars (see "What is simulated"). |
-| "Mama Njeri's Kitchen (demo)" → type `2 chapati and a masala chai` | The agents negotiate. If a discount rule fits the order, the shop's agent offers it and names the rule. A receipt follows. |
+| "Mama Njeri's Kitchen" → type `2 chapati and a masala chai` | The agents negotiate. If a discount rule fits the order, the shop's agent offers it and names the rule. A receipt follows. |
 | On the stall's page choose 2 people and order | Your share goes into escrow in the contract. A link lets a friend pay theirs. The shop is paid once, when the last share arrives. |
+| "Kilimani Service Station" → pick Diesel → type `1500` | "KES 1,500 buys 12 litres of Diesel at KES 125 a litre." You name the money and the shop's agent works out the quantity from its price list. Pay, and you get a three-digit code to show the cashier. In Chat: `Get me diesel for 1,000 at Kilimani`. |
 | "Activity" | Every payment, refund and top-up, red for money out and green for money in |
 
 ### As a merchant
@@ -56,7 +57,9 @@ Open https://merchant-sokonipay.up.railway.app.
 | Sign in with Google → choose a type → name it → add prices in KES | A live preview of the shop as customers will see it, then "Opening your shop" (about 25 seconds: a NEAR account, the onchain register, an agent key) |
 | Look at the console | The shop is "Not verified yet" and has no code. A new shop is hidden from customers until an admin verifies it on the onchain register. This is deliberate: it is what stops a fake sticker. We verify demo shops on request. |
 
-To see a working console without waiting, the two demo shops above show what a verified shop gets: sales charts, the gate (scan a ticket and let people in), refunds, discount rules, subscriptions, the revenue split, withdrawals, the daily statement with CSV export, and the shop's own styled QR code.
+A verified shop gets: sales charts, the gate (scan a ticket and let people in), refunds, discount rules, subscriptions, the revenue split, withdrawals, the daily statement with CSV export, and the shop's own styled QR code.
+
+A counter (a petrol station, a kiosk) also gets a till. Customers pay first from their own phones, and each payment lands on the "To hand over" list with the customer's code and can be read aloud. The cashier serves and clicks "Handed over", which is a `redeem` on the contract: it can happen once, and the contract refuses a refund after it.
 
 ## How NEAR is used
 
@@ -78,8 +81,8 @@ To see a working console without waiting, the two demo shops above show what a v
 | `create_invoice` | Verified shop, or its agent key | Issues an invoice: single, ticket or group |
 | `pay_invoice` | Customer, or their agent key | Pays an invoice. With an agent key the limits apply. |
 | `contribute` / `refund_expired` | Customer or agent / anyone | Pays a share of a group invoice into escrow / returns shares if it expires unfunded |
-| `redeem` | Shop or its agent key | Lets ticket holders in. Refuses a used-up or expired ticket. |
-| `refund` | Shop owner (1 yocto) | Returns a paid invoice in full to whoever paid. A ticket only if nobody has entered on it. |
+| `redeem` | Shop or its agent key | Lets ticket holders in, or marks a counter sale handed over. Refuses a used-up or expired ticket. |
+| `refund` | Shop owner (1 yocto) | Returns a paid invoice in full to whoever paid. A ticket only if nobody has entered on it, and a counter sale only before it is handed over. |
 | `set_revenue_split` | Shop owner (1 yocto) | Divides every sale between the shop and other accounts, in the same transaction |
 | `sweep` | Shop owner (1 yocto) | Moves a balance held by the shop's own sub-account (savings) back to the shop |
 | `subscribe` / `unsubscribe` | Customer (1 yocto) | Lets one shop bill a fixed amount once per period. The contract refuses a bill that is early, for a different amount, or after unsubscribing. |
@@ -126,15 +129,15 @@ Limits of the hackathon build:
 
 ```sh
 cargo test -p sokonipay          # 52 contract tests
-cd backend && uv run pytest      # 7 pricing and discount tests
+cd backend && uv run pytest      # 10 pricing, discount and counter tests
 cd apps && npm ci && npm run build
 ```
 
 ## Run it yourself
 
-The hosted demo is the quick path. Running your own copy needs a NEAR testnet account for the contract, a Supabase project (Postgres, and Google sign-in enabled), and optionally keys for NEAR AI Cloud and ElevenLabs.
+The hosted demo is the quick path. Running your own copy needs a NEAR testnet account for the contract, a Supabase project for Google sign-in, and optionally keys for NEAR AI Cloud and ElevenLabs. The database runs locally in Docker.
 
-Tools: Rust with `cargo-near`, `near-cli-rs`, `uv`, Node 20 or later.
+Tools: Docker, Rust with `cargo-near`, `near-cli-rs`, `uv`, Node 20 or later.
 
 ```sh
 # 1. Contracts: builds both and deploys them to testnet. Reads the account's key from ~/.near-credentials.
@@ -147,9 +150,11 @@ cp backend/.env.example backend/.env      # fill in Supabase, ROOT_ACCOUNT_KEY, 
 cp apps/customer/.env.example apps/customer/.env.local
 cp apps/merchant/.env.example apps/merchant/.env.local
 
-# 4. Everything at once: backend on :8010, user app on :5173, console on :5174
+# 4. Everything at once: Postgres in Docker, backend on :8010, user app on :5173, console on :5174
 (cd apps && npm ci) && ./scripts/dev.sh
 ```
+
+`backend/.env.example` sets `DATABASE_URL` to the Postgres container in `docker-compose.yml` (port 5433), so local data is separate from any hosted database. `./scripts/db-reset.sh` empties it and `./scripts/db-shell.sh` opens a SQL prompt. Without `DATABASE_URL`, the backend uses the Postgres in `SUPABASE_DB_CONN_STR`.
 
 In Supabase, add `http://localhost:5173/auth/callback` and `http://localhost:5174/auth/callback` to the allowed redirect URLs. The account in `ADMIN_EMAILS` can open `/admin` on the console to verify shops.
 

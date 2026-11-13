@@ -13,7 +13,7 @@ type Data = {
   refunds: { id: string; at: string; customer: string; total: number; total_kes: number }[]
   totals: {
     sales: number; sales_kes: number; count: number; refunds: number; refunds_kes: number; refund_count: number
-    net: number; net_kes: number; people: number; admitted: number; shared: Share[]; kept: number; refused: number
+    net: number; net_kes: number; people: number; admitted: number; shared: Share[]; kept: number; kept_net?: number; refused: number
   }
 }
 
@@ -76,7 +76,7 @@ export default function Statement() {
             <Figure name="Net for the day" kes={t.net_kes} micro={t.net} note="Sales less refunds" strong />
             {d.kind === 'venue'
               ? <Card><p className="text-sm text-soft">People</p><p className="num mt-1 text-3xl font-extrabold tracking-tight">{t.admitted} <span className="text-base font-semibold text-soft">of {t.people} in</span></p><p className="mt-2 text-xs text-soft">Admitted at the gate, of those who bought</p></Card>
-              : <Card><p className="text-sm text-soft">Kept by the shop</p><p className="num mt-1 text-3xl font-extrabold tracking-tight">{usd(t.kept)}</p><p className="mt-2 text-xs text-soft">sUSD, after the split</p></Card>}
+              : <Card><p className="text-sm text-soft">Kept by the shop</p><p className="num mt-1 text-3xl font-extrabold tracking-tight">{usd(t.kept_net ?? t.kept)}</p><p className="mt-2 text-xs text-soft">sUSD, after the split and refunds</p></Card>}
           </div>
 
           <Card>
@@ -148,7 +148,7 @@ function Figure({ name, kes: amount, micro, note, strong }: { name: string; kes:
   return (
     <Card className={strong ? 'ring-2 ring-ink' : ''}>
       <p className="text-sm text-soft">{name}</p>
-      <p className="num mt-1 text-3xl font-extrabold tracking-tight"><span className="mr-1 text-sm font-semibold text-soft">KES</span>{kes(amount)}</p>
+      <p className="num mt-1 text-3xl font-extrabold tracking-tight">{amount < 0 && '−'}<span className="mr-1 text-sm font-semibold text-soft">KES</span>{kes(Math.abs(amount))}</p>
       <p className="mt-2 text-xs text-soft">{usd(Math.abs(micro))} sUSD. {note}</p>
     </Card>
   )

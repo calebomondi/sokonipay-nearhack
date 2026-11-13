@@ -26,3 +26,6 @@ body::before {
 @media print {
   body::before { display: none; }
 }
+
+/* Keep room for the scrollbar always, so the page does not shift sideways when a section is short. */
+html { scrollbar-gutter: stable; }

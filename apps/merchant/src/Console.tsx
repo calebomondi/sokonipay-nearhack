@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { api, type Limits, type Line, type Ticket } from '@shared/api'
+import { api, send, type Limits, type Line, type Ticket } from '@shared/api'
+import { digits, useConfirm } from '@shared/Confirm'
 import { Profile } from '@shared/Profile'
 import { Scanner } from '@shared/Scanner'
 import { Button, Card, EXPLORER_ACCOUNT, Meter, Money, Notice, Spinner, Tick, TxLink, fmt, when, Logo, ShopIcon, shopLook, usd } from '@shared/ui'
@@ -9,8 +10,10 @@ import { HoursChart, Metric, Mix, Outcomes, SalesChart, type Day } from './Chart
 import { AgentPanel } from './AgentPanel'
 import { ShopCode } from './ShopCode'
 
-type Item = { sku: string; name: string; price: number; price_kes: number; tags: string[]; stock: number; reorder_at: number; restock_qty: number }
-type OrderRow = { id: string; customer: string; party_size: number; goal: string; mode: string; status: string; invoice_id: string | null; kind: string | null; total: number | null; lines: Line[] | null; agents: string; at: string }
+type Item = { sku: string; name: string; price: number; price_kes: number; tags: string[]; stock: number; reorder_at: number; restock_qty: number; unit: string; whole: boolean }
+type OrderRow = { id: string; customer: string; party_size: number; goal: string; mode: string; status: string; invoice_id: string | null; kind: string | null; total: number | null; lines: Line[] | null; agents: string; at: string
+  /** For a ticket or a counter sale paid ahead: how many have gone in (or 1 once handed over), and the counter's pickup code. */
+  admitted: number; admits: number; code: string | null }
 type Rule = { kind: 'total' | 'group' | 'time' | 'returning'; percent: number; min_kes?: number; people?: number; visits?: number; from?: string; to?: string; says: string }
 type ChargeRow = { id: string; amount: number; amount_kes: number; note: string; at: string; taken: boolean }
 type Data = {
@@ -23,6 +26,7 @@ type Data = {
   items: Item[]; orders: OrderRow[]; discounts: Rule[]; charges: ChargeRow[]
   plans: { id: string; name: string; price_kes: number; every: string; subscribers: number }[]
   log: { kind: string; text: string; tx_hash: string | null; at: string }[]
+  voice: boolean
 }
 type Tab = 'overview' | 'sales' | 'catalogue' | 'plans' | 'rules'
 
@@ -37,7 +41,7 @@ const STATUS: Record<string, { text: string; cls: string }> = {
 }
 
 type ShopRef = { near_id: string; name: string; kind: string; status: string }
-type Stats = { days: Day[]; hours: number[]; usual: number[]; today: Day; yesterday: Day; returning_today: number; top: { name: string; qty: number; amount: number }[]
+type Stats = { days: Day[]; hours: number[]; usual: number[]; now_hour?: number; today: Day; yesterday: Day; returning_today: number; top: { name: string; qty: number; amount: number }[]
   moves: { id: string; amount: number; at_ms: number; symbol: string; chain: string }[] }
 
 /** Today against yesterday as a chip: a percentage when there is something to compare with. */
@@ -55,6 +59,9 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   const [d, setD] = useState<Data | null>(null)
   const [error, setError] = useState('')
   const [refunding, setRefunding] = useState<string | null>(null)
+  // Why a refund didn't happen, kept beside the sale until the next try. (The page's own error line clears on each refresh.)
+  const [notRefunded, setNotRefunded] = useState<{ id: string; text: string } | null>(null)
+  const { ask, sheet } = useConfirm()
   const [tab, setTab] = useState<Tab>('overview')
 
   // An answer can take longer than the 4 seconds between polls. A poll waits for the one in flight;
@@ -95,18 +102,23 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   }
 
   const refund = async (o: OrderRow) => {
-    if (refunding || !window.confirm(`Give ${fmt(o.total ?? 0)} back to ${o.customer}? This can’t be undone.`)) return
+    if (refunding) return
+    if (!(await ask({ title: `Give ${fmt(o.total ?? 0)} back to ${o.customer}?`, body: 'The whole sale is returned from your balance to the customer. This can’t be undone.', yes: 'Refund in full', danger: true }))) return
     setRefunding(o.id)
+    setNotRefunded(null)
     try {
       await api('/api/console/refund', { body: { id: o.invoice_id } })
-      setError('')
     } catch (e) {
-      setError((e as Error).message)
+      setNotRefunded({ id: o.id, text: (e as Error).message })
     } finally {
       setRefunding(null)
       void load()
     }
   }
+
+  // The cards and charts follow the sales list: a new sale or refund refreshes them at once, not on the half-minute.
+  const settled = d ? d.orders.filter((o) => o.status === 'paid' || o.status === 'refunded').map((o) => o.id + o.status).join() : ''
+  useEffect(() => { if (settled) void loadStats() }, [settled, loadStats])
 
   if (!d) return <div className="flex min-h-dvh items-center justify-center">{error ? <Notice>{error}</Notice> : <Spinner />}</div>
   const venue = d.kind === 'venue'
@@ -120,8 +132,8 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
   const people = sold.reduce((n, o) => n + (o.lines ?? []).reduce((m, l) => m + l.qty, 0), 0)
   const paid = d.orders.filter((o) => o.status === 'paid')
   const low = d.items.filter((i) => i.stock <= 5)
-  const words = { sales: venue ? 'Ticket sales' : counter ? 'Sales' : 'Orders', catalogue: venue ? 'Tickets' : 'Menu and stock' }
-  const tabs: [Tab, string][] = [['overview', 'Overview'], ['sales', words.sales], ...(counter ? [] : [['catalogue', words.catalogue] as [Tab, string]]), ['plans', 'Subscriptions'], ['rules', 'Settings']]
+  const words = { sales: venue ? 'Ticket sales' : counter ? 'Sales' : 'Orders', catalogue: venue ? 'Tickets' : counter ? 'Price list' : 'Menu and stock' }
+  const tabs: [Tab, string][] = [['overview', 'Overview'], ['sales', words.sales], ['catalogue', words.catalogue], ['plans', 'Subscriptions'], ['rules', 'Settings']]
 
   const sales = (rows: OrderRow[]) => rows.length === 0 ? (
     <Card><p className="text-sm text-soft">{venue ? 'No tickets sold yet. When someone scans your code and buys, the sale appears here.' : counter ? 'No sales yet. Key in an amount and the customer scans your code to pay it.' : 'No orders yet. When a customer’s agent contacts your agent, the order appears here.'}</p></Card>
@@ -130,10 +142,11 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
       <ul className="divide-y divide-line">
         {rows.map((o) => (
           <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5">
+            {notRefunded?.id === o.id && <p role="alert" className="w-full rounded-2xl bg-bad-wash px-4 py-2.5 text-sm text-bad">{notRefunded.text}</p>}
             <div className="min-w-0 flex-1 basis-52">
               <p className="font-semibold">{o.customer}{o.party_size > 1 ? ` and ${o.party_size - 1} more` : ''}</p>
-              {o.lines ? <p className={`text-sm ${o.status === 'refunded' ? 'text-soft line-through' : ''}`}>{o.lines.map((l) => `${l.qty} × ${l.name}`).join(', ')}</p> : <p className="text-sm text-soft">“{o.goal}”</p>}
-              <p className="text-xs text-soft">{when(o.at)}{d.kind !== 'food' ? '' : o.mode === 'table' ? ', at the stall' : ', pickup'}{o.invoice_id && o.kind === 'Ticket' ? `, ${o.invoice_id}` : ''}</p>
+              {o.lines ? <p className={`text-sm ${o.status === 'refunded' ? 'text-soft line-through' : ''}`}>{o.lines.map((l) => (o.code && l.qty === 1 ? l.name : `${l.qty} × ${l.name}`)).join(', ')}</p> : <p className="text-sm text-soft">“{o.goal}”</p>}
+              <p className="text-xs text-soft">{when(o.at)}{d.kind !== 'food' ? '' : o.mode === 'table' ? ', at the stall' : ', pickup'}{o.code ? `, code ${o.code}${o.status === 'paid' ? (o.admitted ? ', handed over' : ', to hand over') : ''}` : o.invoice_id && o.kind === 'Ticket' ? `, ${o.invoice_id}` : ''}</p>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS[o.status]?.cls ?? 'bg-fill'}`}>{STATUS[o.status]?.text ?? o.status}</span>
             <span className="w-28 text-right">
@@ -144,11 +157,14 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
               )}
             </span>
             <span className="w-28 text-right">
-              {o.status === 'paid' && o.invoice_id && (
+              {o.status === 'paid' && o.invoice_id && (o.admitted > 0 ? (
+                // The contract refuses to refund once someone is in, or the goods are gone. Say so before anyone tries.
+                <span className="block text-xs leading-tight text-soft">Can’t refund: {o.code ? 'handed over' : `${o.admitted} of ${o.admits} already in`}</span>
+              ) : (
                 <button type="button" disabled={refunding !== null} onClick={() => refund(o)} className="rounded-full bg-fill px-3 py-1.5 text-xs font-semibold hover:bg-line disabled:opacity-50">
                   {refunding === o.id ? 'Refunding…' : 'Refund in full'}
                 </button>
-              )}
+              ))}
             </span>
           </li>
         ))}
@@ -158,11 +174,12 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
   return (
     <div className="min-h-dvh">
+      {sheet}
       {/* A floating bar that stays in view: the mark, the sections as a pill, the shop you are in, your account. */}
       <div className="sticky top-3 z-20 px-3 print:hidden">
-        <div className="frost mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 rounded-[28px] px-3 py-2 shadow-[0_10px_30px_rgb(12_14_18/0.10)] ring-1 ring-line md:rounded-full">
+        <div className="frost mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 rounded-[28px] px-3 py-2 shadow-[0_10px_30px_rgb(12_14_18/0.10)] ring-1 ring-line min-[1180px]:rounded-full">
           <Logo size={34} />
-          <nav aria-label="Console sections" className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto md:flex-1 md:justify-center [scrollbar-width:none]">
+          <nav aria-label="Console sections" className="order-last flex w-full min-w-0 gap-1 overflow-x-auto min-[1180px]:order-none min-[1180px]:w-auto min-[1180px]:flex-1 [scrollbar-width:none] [&>*:first-child]:ml-auto [&>*:last-child]:mr-auto">
             {tabs.map(([id, text]) => (
               <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}
                 className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${tab === id ? 'bg-ink text-white' : 'text-soft hover:bg-fill hover:text-ink'}`}>{text}</button>
@@ -214,7 +231,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 print:hidden">
               {d.splits.map((x) => (
                 <Metric key={x.account_id} label={x.account_id.split('.')[0].replace(/^./, (c) => c.toUpperCase())} value={<Money micro={x.balance} />} note={`${x.bps / 100}% of every sale, split by the contract`}>
-                  {x.account_id.endsWith('.' + d.near_id) && x.balance > 0 && (
+                  {x.account_id === `savings.${d.near_id}` && x.balance > 0 && (
                     <button type="button" disabled={moving !== null} onClick={() => sweep(x.account_id)} className="mt-3 w-fit rounded-full bg-fill px-3 py-1.5 text-xs font-semibold hover:bg-line disabled:opacity-50">
                       {moving === x.account_id ? 'Moving…' : 'Move to balance'}
                     </button>
@@ -222,7 +239,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
                 </Metric>
               ))}
               {venue && <Metric label="Recent ticket sales" value={<>{people} <span className="text-base font-semibold text-soft">{people === 1 ? 'person' : 'people'}</span></>} note={`On ${sold.length} ${sold.length === 1 ? 'ticket' : 'tickets'}. Each paid from their own phone, with no phone number given at the gate.`} />}
-              {counter && <Metric label="Recent sales" value={<>{paid.length} <span className="text-base font-semibold text-soft">paid</span></>} note="You key in the amount, the customer scans, their agent pays." />}
+              {counter && <Metric label="Recent sales" value={<>{paid.length} <span className="text-base font-semibold text-soft">paid</span></>} note="The customer names an amount, your agent works out what it buys, their agent pays." />}
               {d.kind === 'food' && (
                 <>
                   <Metric label="Running low" value={<>{low.length} <span className="text-base font-semibold text-soft">{low.length === 1 ? 'item' : 'items'}</span></>}
@@ -244,7 +261,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
             <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] print:hidden">
               <Card>{stats ? <SalesChart days={stats.days} /> : <div className="skeleton h-80" />}</Card>
-              <Card>{stats ? <HoursChart hours={stats.hours} usual={stats.usual} /> : <div className="skeleton h-64" />}</Card>
+              <Card>{stats ? <HoursChart hours={stats.hours} usual={stats.usual} nowHour={stats.now_hour} /> : <div className="skeleton h-64" />}</Card>
             </div>
             <div className="grid gap-4 lg:grid-cols-2 print:hidden">
               <Card>{stats ? <Mix items={stats.top} unit={venue ? 'tickets' : 'sold'} /> : <div className="skeleton h-40" />}</Card>
@@ -253,6 +270,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
 
             <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
               <div className="space-y-6 print:hidden">
+                {counter && live && <Till orders={d.orders} voice={d.voice} onDone={() => load()} />}
                 {counter && live && <Charge charges={d.charges} shopId={d.near_id} shopName={d.name} onDone={() => load()} />}
                 {venue && <Gate orders={d.orders} onDone={() => load()} />}
                 <section className="space-y-3">
@@ -327,11 +345,12 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
           </section>
         )}
 
-        {tab === 'catalogue' && !counter && (
+        {tab === 'catalogue' && (
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
             <section className="space-y-3">
-              <h2 className="px-1 text-xl font-bold">{venue ? 'Your tickets' : 'Menu and stock'}</h2>
-              <Items items={d.items} venue={venue} restocks={!!d.supplier} onSaved={() => load()} />
+              <h2 className="px-1 text-xl font-bold">{venue ? 'Your tickets' : counter ? 'Price list' : 'Menu and stock'}</h2>
+              {counter && <p className="px-1 text-sm text-soft">List what you sell and what one unit costs. A customer then says “diesel for 1,500” and your agent works out the litres. Tick “whole only” for things you don’t split, like a loaf.</p>}
+              <Items items={d.items} venue={venue} counter={counter} restocks={!!d.supplier} onSaved={() => load()} />
             </section>
           </div>
         )}
@@ -573,6 +592,97 @@ function Discounts({ rules, kind, onSaved }: { rules: Rule[]; kind: Data['kind']
   )
 }
 
+const SOUND_KEY = 'sokoni.till.sound'
+
+/** Say something at the till: the service's voice when there is one, the browser's own otherwise. */
+async function sayAloud(text: string, voice: boolean) {
+  try {
+    if (!voice) throw new Error('no voice service')
+    const audio = new Audio(URL.createObjectURL(await (await send('/api/voice/speak', { text })).blob()))
+    await audio.play()
+  } catch {
+    if ('speechSynthesis' in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(text.replace(/KES\s?([\d,]+)/g, '$1 shillings')))
+  }
+}
+
+/**
+ * The till. Customers pay first, from their own phones; each payment lands here with a code and is read aloud.
+ * The cashier checks the code on the customer's screen, hands over, and marks it. The contract takes a hand-over once,
+ * and refuses a refund after it.
+ */
+function Till({ orders, voice, onDone }: { orders: OrderRow[]; voice: boolean; onDone: () => unknown }) {
+  const [sound, setSound] = useState(() => localStorage.getItem(SOUND_KEY) === '1')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const paid = orders.filter((o) => o.status === 'paid' && o.invoice_id)
+  const waiting = paid.filter((o) => o.code && o.admitted === 0)
+  const seen = useRef<Set<string> | null>(null)
+
+  // Read each new payment aloud once. Payments already on the list when the page opened stay silent.
+  useEffect(() => {
+    if (seen.current === null) { seen.current = new Set(paid.map((o) => o.id)); return }
+    for (const o of paid) {
+      if (seen.current.has(o.id)) continue
+      seen.current.add(o.id)
+      const what = (o.lines ?? []).map((l) => (l.qty > 1 ? `${l.qty} ${l.name}` : l.name)).join(', ')
+      if (sound) void sayAloud(`Paid. ${fmt(o.total ?? 0)} from ${o.customer.split(' ')[0]}${what ? `, for ${what}` : ''}.${o.code ? ` Code ${o.code.split('').join(' ')}.` : ''}`, voice)
+    }
+  }, [paid.map((o) => o.id).join(), sound, voice]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggle = () => {
+    const on = !sound
+    setSound(on)
+    localStorage.setItem(SOUND_KEY, on ? '1' : '0')
+    if (on) void sayAloud('Sound is on. Payments will be read out.', voice) // the click also lets the browser play later ones
+  }
+  const hand = async (o: OrderRow) => {
+    if (busy) return
+    setBusy(o.id)
+    try {
+      const r = await api<{ ok: boolean; reason?: string }>('/api/console/redeem', { body: { id: o.invoice_id } })
+      setNote(r.ok ? { ok: true, text: `Handed over to ${o.customer} (code ${o.code}).` } : { ok: false, text: `Don’t hand over: ${r.reason}.` })
+      await onDone()
+    } catch (e) {
+      setNote({ ok: false, text: (e as Error).message })
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">To hand over</h2>
+          <p className="mt-0.5 text-sm text-soft">Paid already. Match the code on the customer’s phone, serve, then mark it.</p>
+        </div>
+        <button type="button" onClick={toggle} aria-pressed={sound} className={`flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold ${sound ? 'bg-iris text-white' : 'bg-fill hover:bg-line'}`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z" />{sound ? <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /> : <path d="m16 9.5 5 5M21 9.5l-5 5" />}
+          </svg>
+          {sound ? 'Reading payments aloud' : 'Read payments aloud'}
+        </button>
+      </div>
+      {waiting.length === 0 ? (
+        <p className="mt-4 rounded-2xl bg-canvas px-4 py-3 text-sm text-soft">Nobody is waiting. When a customer scans your code and pays, they appear here with a code.</p>
+      ) : (
+        <ul className="mt-4 space-y-2" aria-live="polite">
+          {waiting.map((o) => (
+            <li key={o.id} className="rise flex flex-wrap items-center gap-4 rounded-2xl bg-good-wash p-4">
+              <span className="num rounded-2xl bg-white px-3.5 py-2 text-3xl font-extrabold tracking-[0.08em] text-ink">{o.code}</span>
+              <div className="min-w-0 flex-1 basis-40">
+                <p className="font-bold">{(o.lines ?? []).map((l) => (l.qty > 1 ? `${l.qty} × ${l.name}` : l.name)).join(', ') || o.goal}</p>
+                <p className="text-sm">{o.customer} paid <span className="num font-semibold">{fmt(o.total ?? 0)}</span> <span className="text-soft">· {when(o.at)}</span></p>
+              </div>
+              <Button disabled={busy !== null} onClick={() => hand(o)} className="!py-2.5 text-sm">{busy === o.id ? 'Marking…' : 'Handed over'}</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <div className="mt-3"><Notice tone={note.ok ? 'good' : 'bad'}>{note.text}</Notice></div>}
+    </Card>
+  )
+}
+
 /** A counter: key in what the customer owes. They scan the code, their agent pays, and it turns green here. */
 function Charge({ charges, shopId, shopName, onDone }: { charges: ChargeRow[]; shopId: string; shopName: string; onDone: () => void }) {
   const [amount, setAmount] = useState('')
@@ -594,13 +704,14 @@ function Charge({ charges, shopId, shopName, onDone }: { charges: ChargeRow[]; s
   const field = 'rounded-2xl bg-fill px-4 py-3 outline-none placeholder:text-soft focus:ring-2 focus:ring-iris'
   return (
     <Card>
-      <h2 className="text-xl font-bold">Charge a customer</h2>
+      <h2 className="text-xl font-bold">Or key in an amount</h2>
+      <p className="mt-0.5 text-sm text-soft">For a sale where you know the amount first: a repair, something weighed.</p>
       <form className="mt-3 flex flex-wrap gap-2" onSubmit={(e) => {
         e.preventDefault()
         void run(() => api('/api/console/charges', { body: { amount_kes: Math.round(Number(amount)), note: what.trim() } })).then(() => { setAmount(''); setWhat('') })
       }}>
         <label className="sr-only" htmlFor="charge-amount">Amount in shillings</label>
-        <input id="charge-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="KES" className={`${field} num w-36 text-2xl font-extrabold`} />
+        <input id="charge-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(digits(e.target.value))} placeholder="KES" className={`${field} num w-36 text-2xl font-extrabold`} />
         <input aria-label="What it is for (optional)" value={what} onChange={(e) => setWhat(e.target.value)} maxLength={80} placeholder="What it’s for, e.g. Diesel, 12 litres" className={`${field} min-w-0 flex-1 text-sm`} />
         <Button disabled={busy || !(Number(amount) >= 1)}>Ask for payment</Button>
       </form>
@@ -629,7 +740,10 @@ function Charge({ charges, shopId, shopName, onDone }: { charges: ChargeRow[]; s
   )
 }
 
-function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: boolean; restocks: boolean; onSaved: () => void }) {
+function Items({ items, venue, counter = false, restocks, onSaved }: { items: Item[]; venue: boolean; counter?: boolean; restocks: boolean; onSaved: () => unknown }) {
+  const [unit, setUnit] = useState('')
+  const [whole, setWhole] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [price, setPrice] = useState('')
   const [stock, setStock] = useState('')
@@ -638,15 +752,19 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
   const [category, setCategory] = useState('main')
   const [error, setError] = useState('')
   const run = async (fn: () => Promise<unknown>) => {
+    setSaving(true)
     try {
       await fn()
       setError('')
+      await onSaved() // the row keeps "Saving…" until the new figures are on screen
       setEditing(null)
-      onSaved()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setSaving(false)
     }
   }
+  const noStock = venue || counter
   const cell = 'num w-20 rounded-xl bg-fill px-2 py-1.5 text-right outline-none focus:ring-2 focus:ring-iris'
   return (
     <Card className="!p-0">
@@ -656,7 +774,8 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
           <tr>
             <th className="px-5 py-3 font-medium">{venue ? 'Ticket' : 'Item'}</th>
             <th className="py-3 text-right font-medium">Price, KES</th>
-            {!venue && <th className="py-3 text-right font-medium">In stock</th>}
+            {counter && <th className="py-3 pl-4 font-medium">For each</th>}
+            {!noStock && <th className="py-3 text-right font-medium">In stock</th>}
             <th className="px-5 py-3" />
           </tr>
         </thead>
@@ -669,17 +788,19 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
               </td>
               {editing === i.sku ? (
                 <>
-                  <td className="py-2 text-right"><input aria-label={`Price of ${i.name}`} className={cell} value={price} onChange={(e) => setPrice(e.target.value)} /></td>
-                  {!venue && <td className="py-2 text-right"><input aria-label={`Stock of ${i.name}`} className={cell} value={stock} onChange={(e) => setStock(e.target.value)} /></td>}
+                  <td className="py-2 text-right"><input aria-label={`Price of ${i.name}`} inputMode="numeric" className={cell} value={price} onChange={(e) => setPrice(digits(e.target.value))} /></td>
+                  {counter && <td className="py-2 pl-4 text-soft">{i.unit || 'one'}{i.whole && i.unit ? ', whole only' : ''}</td>}
+                  {!noStock && <td className="py-2 text-right"><input aria-label={`Stock of ${i.name}`} inputMode="numeric" className={cell} value={stock} onChange={(e) => setStock(digits(e.target.value))} /></td>}
                   <td className="whitespace-nowrap px-5 py-2 text-right">
-                    <button onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'PATCH', body: venue ? { price_kes: Math.round(Number(price)) } : { price_kes: Math.round(Number(price)), stock: Math.round(Number(stock)) } }))} className="font-semibold text-iris">Save</button>
-                    <button onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'DELETE' }))} className="ml-3 font-medium text-bad">Remove</button>
+                    <button disabled={saving} onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'PATCH', body: noStock ? { price_kes: Math.round(Number(price)) } : { price_kes: Math.round(Number(price)), stock: Math.round(Number(stock)) } }))} className="font-semibold text-iris disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+                    <button disabled={saving} onClick={() => run(() => api(`/api/console/items/${i.sku}`, { method: 'DELETE' }))} className="ml-3 font-medium text-bad disabled:opacity-50">Remove</button>
                   </td>
                 </>
               ) : (
                 <>
                   <td className="num py-2.5 text-right">{i.price_kes.toLocaleString('en-US')}</td>
-                  {!venue && <td className="num py-2.5 text-right">{i.stock}{restocks && i.restock_qty > 0 && <span className="text-soft"> / reorder at {i.reorder_at}</span>}</td>}
+                  {counter && <td className="py-2.5 pl-4 text-soft">{i.unit || 'one'}{i.whole && i.unit ? ', whole only' : ''}</td>}
+                  {!noStock && <td className="num py-2.5 text-right">{i.stock}{restocks && i.restock_qty > 0 && <span className="text-soft"> / reorder at {i.reorder_at}</span>}</td>}
                   <td className="px-5 py-2.5 text-right">
                     <button onClick={() => { setEditing(i.sku); setPrice(String(i.price_kes)); setStock(String(i.stock)) }} className="font-medium text-soft hover:text-ink">Edit</button>
                   </td>
@@ -689,22 +810,28 @@ function Items({ items, venue, restocks, onSaved }: { items: Item[]; venue: bool
           ))}
         </tbody>
       </table>
-      {items.length === 0 && <p className="px-5 pb-2 text-sm text-soft">{venue ? 'Add the tickets you sell at the gate, with your own prices.' : 'Add what you sell.'}</p>}
+      {items.length === 0 && <p className="px-5 pb-2 text-sm text-soft">{venue ? 'Add the tickets you sell at the gate, with your own prices.' : counter ? 'Nothing listed yet. Customers can still pay an amount, and you decide what it covers.' : 'Add what you sell.'}</p>}
       <form
         className="flex flex-wrap gap-2 border-t border-line p-4"
         onSubmit={(e) => {
           e.preventDefault()
-          void run(() => api('/api/console/items', { body: { name: newName.trim(), price_kes: Math.round(Number(newPrice)), category } })).then(() => { setNewName(''); setNewPrice('') })
+          void run(() => api('/api/console/items', { body: { name: newName.trim(), price_kes: Math.round(Number(newPrice)), category, unit: unit.trim(), whole } })).then(() => { setNewName(''); setNewPrice(''); setUnit(''); setWhole(false) })
         }}
       >
-        <input aria-label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={venue ? 'Adult' : 'Chapati'} className="min-w-0 flex-1 rounded-full bg-fill px-4 py-2 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
-        {!venue && (
+        <input aria-label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={venue ? 'Adult' : counter ? 'Diesel' : 'Chapati'} className="min-w-0 flex-1 rounded-full bg-fill px-4 py-2 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
+        {!noStock && (
           <select aria-label="Kind of dish" value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-full bg-fill px-3 py-2 text-sm">
             <option value="main">Main</option><option value="side">Side</option><option value="drink">Drink</option>
           </select>
         )}
-        <input aria-label="Price in shillings" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} inputMode="numeric" placeholder="KES" className="num w-24 rounded-full bg-fill px-4 py-2 text-right text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
-        <Button tone="dark" disabled={newName.trim().length < 2 || !(Number(newPrice) >= 1)} className="!px-4 !py-2 text-sm">Add {venue ? 'ticket' : 'item'}</Button>
+        <input aria-label="Price in shillings" value={newPrice} onChange={(e) => setNewPrice(digits(e.target.value))} inputMode="numeric" placeholder="KES" className="num w-24 rounded-full bg-fill px-4 py-2 text-right text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
+        {counter && (
+          <>
+            <input aria-label="What the price is for" value={unit} onChange={(e) => setUnit(e.target.value)} maxLength={12} placeholder="per litre, kg, loaf…" className="w-40 rounded-full bg-fill px-4 py-2 text-sm outline-none placeholder:text-soft focus:ring-2 focus:ring-iris" />
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={whole} onChange={(e) => setWhole(e.target.checked)} className="h-4 w-4 accent-[var(--color-iris)]" />Whole only</label>
+          </>
+        )}
+        <Button tone="dark" disabled={saving || newName.trim().length < 2 || !(Number(newPrice) >= 1)} className="!px-4 !py-2 text-sm">{saving ? 'Saving…' : `Add ${venue ? 'ticket' : 'item'}`}</Button>
       </form>
     </Card>
   )
@@ -722,7 +849,7 @@ function Icon({ d }: { d: string }) {
  * The shop as its customers see it, at the top of the console: who it is, where and when. "Edit" turns the
  * same card into a form, so the owner changes exactly what a customer reads.
  */
-function ShopProfile({ d, onSaved }: { d: Data; onSaved: () => void }) {
+function ShopProfile({ d, onSaved }: { d: Data; onSaved: () => unknown }) {
   const venue = d.kind === 'venue'
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(d.blurb)
@@ -739,8 +866,8 @@ function ShopProfile({ d, onSaved }: { d: Data; onSaved: () => void }) {
     setBusy(true)
     try {
       await api('/api/console/about', { body: { blurb: text.trim(), place: where.trim(), hours: timed ? { open, close } : null } })
+      await onSaved() // stay on "Saving…" until the card can show the new text
       setEditing(false)
-      onSaved()
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -766,7 +893,7 @@ function ShopProfile({ d, onSaved }: { d: Data; onSaved: () => void }) {
           {editing ? (
             <form onSubmit={save} className="mt-4 max-w-2xl space-y-4">
               <label className="block text-sm font-medium">Who you are and what you offer
-                <textarea autoFocus className={`${field} resize-none`} rows={3} maxLength={200} value={text} onChange={(e) => setText(e.target.value)} placeholder="A 30-hectare forest park in the city. Walking trails, picnic lawns and over 350 tree species." />
+                <textarea autoFocus className={`${field} resize-none`} rows={3} maxLength={200} value={text} onChange={(e) => setText(e.target.value)} placeholder={venue ? 'A 30-hectare forest park in the city. Walking trails, picnic lawns and over 350 tree species.' : d.kind === 'food' ? 'Home-style Kenyan food cooked fresh every morning: chapati, pilau, stews and chai.' : 'Fuel, oil and a small shop, open early. Pay from your phone before you leave the car.'} />
                 <span className="num mt-1 block text-right text-xs font-normal text-soft">{text.length} of 200</span>
               </label>
               <label className="block text-sm font-medium">Where customers find you
@@ -865,7 +992,7 @@ function Gate({ orders, onDone }: { orders: OrderRow[]; onDone: () => void }) {
         <Button disabled={busy || id.trim().length < 3} className="!px-4 !py-2.5 text-sm">Check</Button>
       </form>
       <button type="button" onClick={() => setScanning(true)} className="mt-2 text-sm font-semibold text-iris hover:underline">Scan a ticket with the camera</button>
-      {tickets.length > 0 && !found && (
+      {tickets.length > 0 && (
         <p className="mt-2 text-xs text-soft">
           Sold recently:{' '}
           {tickets.slice(0, 5).map((o) => (

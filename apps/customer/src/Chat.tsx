@@ -1,3 +1,4 @@
+import { useConfirm } from '@shared/Confirm'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { api, send as post, stream, type Ev, type Line } from '@shared/api'
@@ -5,7 +6,7 @@ import { Button, Notice, ShopIcon, fmt, usd } from '@shared/ui'
 import { Transcript } from './Transcript'
 
 type Past = { role: 'user' | 'agent'; text: string; at: string; order: { shop: string; shop_id: string; events: Ev[] } | null }
-type Ask = { shop: string; shop_id: string; total: number; discount_bps: number; lines: Line[]; wait_s: number }
+type Ask = { shop: string; shop_id: string; total: number; discount_bps: number; lines: Line[]; wait_s: number; why?: string; says?: string }
 type ChatEv =
   | { t: 'thread'; id: string; title: string }
   | { t: 'step'; text: string }
@@ -150,8 +151,9 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
     setLive((l) => l && { ...l, answered: yes })
     api('/api/chat/confirm', { body: { yes } }).catch((e) => setError(e.message))
   }
+  const { ask, sheet } = useConfirm()
   const forget = async (t: Thread) => {
-    if (!window.confirm(`Delete “${t.title}”? Payments made in it stay in Activity.`)) return
+    if (!(await ask({ title: 'Delete this chat?', body: `“${t.title}” is removed. Payments made in it stay in Activity.`, yes: 'Delete', danger: true }))) return
     await api(`/api/chats/${t.id}`, { method: 'DELETE' }).catch((e) => setError(e.message))
     if (t.id === thread) open(null)
     void loadThreads().catch(() => {})
@@ -161,6 +163,7 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
   const pill = 'shrink-0 rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line disabled:opacity-50'
   return (
     <>
+      {sheet}
       <header className="relative z-20 flex items-center gap-2 pb-3 pt-4">
         <button type="button" onClick={() => setListing(!listing)} aria-pressed={listing} disabled={!!live} className={pill}>{listing ? 'Back' : 'Chats'}</button>
         <h1 className="min-w-0 flex-1 truncate text-center text-base font-bold">{title}</h1>
@@ -302,8 +305,10 @@ function Confirm({ ask, onReply }: { ask: Ask; onReply: (yes: boolean) => void }
   return (
     <div className="rise w-full rounded-3xl bg-card p-5 ring-2 ring-iris" role="group" aria-label="Confirm this payment">
       <p className="text-sm text-soft">Shall I pay <Link to={`/shop/${ask.shop_id}`} className="font-semibold text-ink underline underline-offset-2">{ask.shop}</Link>?</p>
+      {ask.why && <p className="mt-1 text-sm">I chose it because {ask.why.replace(/^because\s+/i, '').replace(/\.$/, '')}.</p>}
+      {ask.says && <p className="mt-2 rounded-2xl bg-canvas px-3 py-2 text-sm">{ask.shop} says: {ask.says}</p>}
       <ul className="mt-2 space-y-1 text-sm">
-        {ask.lines.map((l) => <li key={l.sku} className="flex justify-between gap-3"><span>{l.qty} × {l.name}</span><span className="num text-soft">{fmt(l.qty * l.unit_price)}</span></li>)}
+        {ask.lines.map((l) => <li key={l.sku} className="flex justify-between gap-3"><span>{l.qty > 1 ? `${l.qty} × ` : ''}{l.name}</span><span className="num text-soft">{fmt(l.qty * l.unit_price)}</span></li>)}
         {ask.discount_bps > 0 && <li className="flex justify-between gap-3 text-good"><span>Discount agreed</span><span className="num">{ask.discount_bps / 100}% off</span></li>}
       </ul>
       <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">

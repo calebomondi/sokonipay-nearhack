@@ -1,3 +1,4 @@
+import { digits } from './Confirm'
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { CoinIcon } from './Coin'
@@ -93,7 +94,7 @@ export default function Withdraw({ balance, onClose, onDone, path = '/api/fundin
 
             <div>
               <p className="text-sm font-medium">1. Which chain should it arrive on?</p>
-              <div className="mt-2 flex max-h-36 flex-wrap gap-2 overflow-y-auto">
+              <div className="mt-2 flex max-h-52 [scrollbar-width:thin] flex-wrap gap-2 overflow-y-auto">
                 {options.chains.map((c) => (
                   <button key={c.id} type="button" aria-pressed={chain?.id === c.id} onClick={() => { setChain(c); setToken(c.tokens.length === 1 ? c.tokens[0] : null); setError('') }} className={pill(chain?.id === c.id)}><CoinIcon chain={c.id} />{c.name}</button>
                 ))}
@@ -113,7 +114,7 @@ export default function Withdraw({ balance, onClose, onDone, path = '/api/fundin
 
             {token && (
               <label className="block text-sm font-medium">3. How much, in dollars?
-                <input className={`num text-lg font-semibold ${field}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <input className={`num text-lg font-semibold ${field}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(digits(e.target.value, true))} />
                 {!inRange && <span className="mt-1 block text-xs font-normal text-bad">Enter between {usd(options.min)} and your balance of {usd(balance)}.</span>}
               </label>
             )}

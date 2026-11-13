@@ -73,11 +73,13 @@ class Run:
 
 async def run_order(customer: Account, shop_id: str, goal: str, mode: str, presence_token: str | None,
                     party_size: int, emit: Emit, basket: list[dict] | None = None, charge_id: str | None = None,
-                    approve=None) -> Order:
+                    approve=None, spend: dict | None = None) -> Order:
     """`basket` is set when the person picked exactly what to buy (gate tickets): no haggling, no LLM.
-    `charge_id` is an amount the cashier keyed in at a counter: the same fast path, with one line."""
+    `charge_id` is an amount the cashier keyed in at a counter: the same fast path, with one line.
+    `spend` is the customer naming an amount at a counter ({"sku", "amount_kes", "note"}): the shop's agent
+    works out what it buys, and the sale is a one-use pass the cashier redeems when the goods change hands."""
     order = Order(id="o-" + secrets.token_hex(6), shop_near_id=shop_id, customer_near_id=customer.near_id,
-                  party_size=party_size, goal=goal, mode=mode, agent_mode=llm.mode_label(), events=[])
+                  party_size=party_size, goal=goal, mode="counter" if spend else mode, agent_mode=llm.mode_label(), events=[])
     async with Session() as s:
         s.add(order)
         await s.commit()
@@ -86,13 +88,15 @@ async def run_order(customer: Account, shop_id: str, goal: str, mode: str, prese
         visits = await s.scalar(select(func.count()).select_from(Order).where(
             Order.shop_near_id == shop_id, Order.customer_near_id == customer.near_id, Order.status == "paid")) or 0
     run = Run(order, emit)
+    if spend and (shop is None or shop.kind != "counter"):
+        spend = None
     try:
         # 1. Connect: check the shop against the onchain register before talking to it.
         if shop is None or not shop.listed or shop.status != "approved":
             return await run.finish("failed", "That shop is not on SokoniPay.")
         if shop.kind == "venue" and not basket:
             return await run.finish("failed", "Pick how many tickets you want.")
-        if shop.kind == "counter":
+        if shop.kind == "counter" and not spend:
             if charge is None or charge.shop_near_id != shop_id or charge.status != "open":
                 return await run.finish("failed", "That amount is no longer waiting to be paid. Ask the cashier to enter it again.")
             async with Session() as s:  # one customer per amount: take it before paying
@@ -116,16 +120,32 @@ async def run_order(customer: Account, shop_id: str, goal: str, mode: str, prese
             items = [{"sku": sku, "name": charge.note or "Counter sale", "price": fx.to_micro(charge.amount_kes), "price_kes": charge.amount_kes,
                       "tags": ["counter"], "stock": 1, "reorder_at": 0, "restock_qty": 0, "unit_cost": 0}]
             basket = [{"sku": sku, "qty": 1}]
+        says, opening = "", ""
+        if spend:
+            # The customer names the money; the shop's price list decides the quantity.
+            item = next((i for i in items if i["sku"] == spend.get("sku")), None)
+            buys = policy.amount_buys(item, int(spend["amount_kes"]), spend.get("note") or "")
+            if not buys.ok:
+                return await run.finish("failed", buys.says)
+            says = buys.says
+            opening = f"Hello. My customer wants {item['name'] if item else buys.what} for KES {int(spend['amount_kes']):,}. What does that buy?"
+            if buys.qty:  # whole units: the item itself, so many times
+                basket = [{"sku": item["sku"], "qty": buys.qty}]
+            else:  # a measured amount, or something with no listed price: one line for the money
+                sku = "amt-" + secrets.token_hex(4)
+                items = [{"sku": sku, "name": buys.what, "price": fx.to_micro(buys.charge_kes), "price_kes": buys.charge_kes,
+                          "tags": ["counter"], "stock": 1, "reorder_at": 0, "restock_qty": 0, "unit_cost": 0}]
+                basket = [{"sku": sku, "qty": 1}]
         me, them = f"{customer.name.split(' ')[0]}'s agent", f"{shop.name} agent"
 
         # 2-3. Two separate agents, one channel between them.
         desk = Desk(shop_id, shop.name, shop.rules or {}, items, accounts.agent_key(merchant_account), customer.near_id,
-                    party_size > 1, shop.hours, party_size, visits, fixed=basket is not None)
+                    party_size > 1, shop.hours, party_size, visits, fixed=basket is not None, handover=bool(spend), says=says)
         channel = Channel(me, them, make_merchant(desk, fixed_prices=basket is not None).handle, run.emit)
         checkout = Checkout(customer.near_id, accounts.agent_key(customer), shop_id, party_size, me, run.emit, approve)
         limits, balance = await asyncio.gather(
             near.view("get_limits", {"account_id": customer.near_id}), near.view("get_balance", {"account_id": customer.near_id}))
-        out = await run_personal(goal, party_size, items, channel, checkout, customer.name, limits, int(balance), run.emit, basket)
+        out = await run_personal(goal, party_size, items, channel, checkout, customer.name, limits, int(balance), run.emit, basket, opening)
 
         inv = out.invoice
         if inv:
@@ -202,17 +222,23 @@ async def _paid(run: Run, onchain: dict) -> Order:
     who = await names([c["account_id"] for c in onchain["contributions"]])
     pay_tx = next((e["hash"] for e in reversed(run.events) if e["t"] == "tx" and e["label"].startswith("Paid")), None)
     ticket = None
+    code = policy.pickup_code(order.invoice_id) if order.mode == "counter" else None
     if order.kind == "Ticket":
         # The Merchant Agent hands over the ticket it issued with the invoice.
         ticket = await near.view("get_ticket", {"id": order.invoice_id})
         async with Session() as s:
             shop = await s.get(Shop, order.shop_near_id)
-        gate = policy.gate_now(shop.hours if shop else None)
-        people = "one person" if ticket["admits"] == 1 else f"{ticket['admits']} people"
-        await run.emit({"t": "msg", "from": "merchant", "who": f"{shop.name if shop else 'Shop'} agent", "kind": "ticket",
-                        "text": f"Payment received. Here is your ticket: it admits {people}. {gate.says} Show it at the gate."})
+        who_says = f"{shop.name if shop else 'Shop'} agent"
+        if code:
+            await run.emit({"t": "msg", "from": "merchant", "who": who_says, "kind": "ticket",
+                            "text": f"Payment received. Your code is {code}. Show it to the cashier to collect."})
+        else:
+            gate = policy.gate_now(shop.hours if shop else None)
+            people = "one person" if ticket["admits"] == 1 else f"{ticket['admits']} people"
+            await run.emit({"t": "msg", "from": "merchant", "who": who_says, "kind": "ticket",
+                            "text": f"Payment received. Here is your ticket: it admits {people}. {gate.ticket_says} Show it at the gate."})
     await run.emit({"t": "receipt", "id": order.invoice_id, "total": order.total, "kind": order.kind, "lines": order.lines, "tx_hash": pay_tx,
-                    "ticket": ticket,
+                    "ticket": ticket, "pickup_code": code,
                     "payers": [{"id": c["account_id"], "name": who[c["account_id"]], "amount": int(c["amount"])} for c in onchain["contributions"]]})
     lines = [Line(**line) for line in order.lines or []]
     async with Session() as s:

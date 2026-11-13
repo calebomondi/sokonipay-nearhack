@@ -96,6 +96,7 @@ class Helper:
         self.account, self.emit = account, emit
         self.order_id: str | None = None
         self.declined = False
+        self.why = ""  # the agent's reason for the shop it chose, shown with the total
 
     async def my_account(self) -> dict:
         me = self.account.near_id
@@ -125,39 +126,53 @@ class Helper:
         for x in shops:
             items = await orders.shop_items(x.near_id)
             out.append({"shop_id": x.near_id, "name": x.name, "place": x.place,
-                        "kind": {"venue": "sells entry tickets", "food": "food stall", "counter": "pay-at-counter only"}.get(x.kind, x.kind),
+                        "kind": {"venue": "sells entry tickets", "food": "food stall", "counter": "counter: buy by amount"}.get(x.kind, x.kind),
                         "open_now": policy.gate_now(x.hours).open, "times_you_paid_here": used.get(x.near_id, 0),
-                        "sells": [{"name": i["name"], "price": f"KES {i['price_kes']:,}", "in_stock": i["stock"] > 0} for i in items]})
+                        "sells": [{"name": i["name"], "price": f"KES {i['price_kes']:,}" + (f" a {policy.unit_of(i)}" if policy.unit_of(i) else ""),
+                                   "in_stock": i["stock"] > 0} for i in items]})
         return sorted(out, key=lambda x: -x["times_you_paid_here"])
 
-    async def _approve(self, shop: Shop, quote: dict) -> bool:
-        """Show the person the shop and the total, and wait for their yes."""
+    async def _approve(self, shop: Shop, quote: dict) -> bool | None:
+        """Show the person the shop and the total, and wait for their yes. None if they never answered."""
         me = self.account.near_id
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         _waiting[me] = fut
         await self.emit({"t": "confirm", "shop": shop.name, "shop_id": shop.near_id, "total": quote["total"],
-                         "discount_bps": quote.get("discount_bps", 0), "lines": quote["lines"], "wait_s": CONFIRM_WAIT})
+                         "discount_bps": quote.get("discount_bps", 0), "lines": quote["lines"], "wait_s": CONFIRM_WAIT,
+                         "why": self.why, "says": quote.get("buys", "")})
         try:
             yes = await asyncio.wait_for(fut, CONFIRM_WAIT)
         except TimeoutError:
-            yes = False
+            yes = None
         finally:
             _waiting.pop(me, None)
-        self.declined = not yes
-        await self.emit({"t": "confirmed", "yes": yes})
+        self.declined = yes is False
+        await self.emit({"t": "confirmed", "yes": bool(yes)})
         return yes
 
-    async def order(self, shop_id: str, request: str, tickets: list[dict] | None = None) -> dict:
+    async def order(self, shop_id: str, request: str, tickets: list[dict] | None = None, spend: dict | None = None,
+                    why: str = "") -> dict:
         """Run one order at one shop through the usual agent-to-agent flow, pausing for a yes before paying."""
+        self.why = " ".join(why.split())[:160]
         if self.order_id:
             return {"error": "One order per message. Tell the customer the result of the first one."}
         async with Session() as s:
             shop = await s.get(Shop, shop_id)
         if shop is None or shop.status != "approved":
             return {"error": "That shop_id is not a verified shop. Use find_shops and copy a shop_id from it."}
-        if shop.kind == "counter":
-            return {"error": f"{shop.name} takes payment at its counter only: the cashier keys in the amount and the customer scans the code there."}
         basket = None
+        if shop.kind == "counter":
+            items = await orders.shop_items(shop_id)
+            if not spend or not spend.get("amount_kes"):
+                return {"error": f"{shop.name} is a counter: say what to buy and for how many shillings, e.g. 'diesel for KES 1,500'. "
+                                 + ("It lists: " + ", ".join(f"{i['name']} (KES {i['price_kes']:,}{' a ' + policy.unit_of(i) if policy.unit_of(i) else ''})" for i in items) if items else "")}
+            want = str(spend.get("item") or "").lower()
+            hit = next((i for i in items if want and (i["name"].lower() in want or want in i["name"].lower())), None)
+            if hit is None and items and want:
+                hit = next((i for i in items if any(len(w) > 2 and w in want for w in i["name"].lower().split())), None)
+            spend = {"sku": hit["sku"] if hit else None, "amount_kes": int(spend["amount_kes"]), "note": spend.get("item") or request}
+        elif spend:
+            return {"error": f"{shop.name} is not a counter. Use buy_tickets or order_food for it."}
         if shop.kind == "venue":
             items = await orders.shop_items(shop_id)
             by_name = {i["name"].lower(): i for i in items}
@@ -178,9 +193,13 @@ class Helper:
 
         await self.emit({"t": "step", "text": f"Talking to {shop.name}'s agent"})
         done = await orders.run_order(self.account, shop_id, request[:300], "pickup", None, 1, emit, basket,
-                                      approve=lambda q: self._approve(shop, q))
+                                      approve=lambda q: self._approve(shop, q), spend=spend)
         self.order_id = done.id
         if done.status == "paid":
+            if done.mode == "counter":
+                return {"result": "paid", "shop": shop.name, "total": policy.fmt(done.total), "receipt": done.invoice_id,
+                        "bought": policy.listing([policy.Line(**x) for x in done.lines or []]),
+                        "collect_with_code": policy.pickup_code(done.invoice_id)}
             return {"result": "paid", "shop": shop.name, "total": policy.fmt(done.total), "receipt": done.invoice_id,
                     "is_ticket": done.kind == "Ticket"}
         if self.declined:
@@ -203,18 +222,22 @@ async def _with_llm(h: Helper, text: str, past: list[dict]) -> str:
     async def find_shops() -> str:
         return json.dumps(await h.find_shops())
 
-    async def buy_tickets(shop_id: str, tickets: list[_Ticket]) -> str:
+    async def buy_tickets(shop_id: str, tickets: list[_Ticket], why_this_shop: str = "") -> str:
         wanted = [t.model_dump() if isinstance(t, BaseModel) else dict(t) for t in tickets]
-        return json.dumps(await h.order(shop_id, ", ".join(f"{t['qty']} × {t['name']}" for t in wanted), wanted))
+        return json.dumps(await h.order(shop_id, ", ".join(f"{t['qty']} × {t['name']}" for t in wanted), wanted, why=why_this_shop))
 
-    async def order_food(shop_id: str, request: str) -> str:
-        return json.dumps(await h.order(shop_id, request))
+    async def order_food(shop_id: str, request: str, why_this_shop: str = "") -> str:
+        return json.dumps(await h.order(shop_id, request, why=why_this_shop))
+
+    async def buy_at_counter(shop_id: str, item: str, amount_kes: int, why_this_shop: str = "") -> str:
+        return json.dumps(await h.order(shop_id, f"{item} for KES {amount_kes:,}", spend={"item": item, "amount_kes": amount_kes}, why=why_this_shop))
 
     tools = [
         StructuredTool.from_function(coroutine=my_account, name="my_account", description="The customer's balance, agent spending limits and recent payments."),
         StructuredTool.from_function(coroutine=find_shops, name="find_shops", description="All verified shops with what they sell, prices in KES, whether open, and how often the customer has paid there."),
         StructuredTool.from_function(coroutine=buy_tickets, name="buy_tickets", description="Buy entry tickets at a venue. The customer is asked to confirm the total before anything is paid."),
         StructuredTool.from_function(coroutine=order_food, name="order_food", description="Order from a food stall in the customer's own words, e.g. '2 chapati and a chai, under KES 300'. The customer is asked to confirm the total before anything is paid."),
+        StructuredTool.from_function(coroutine=buy_at_counter, name="buy_at_counter", description="Buy something by amount at a counter (a petrol station, a kiosk): the item and how many shillings to spend, e.g. item 'diesel', amount_kes 1500. The shop's agent works out the quantity from its price list. The customer is asked to confirm before anything is paid, then shows a code to the cashier to collect."),
     ]
     model, fallbacks = llm.chat()
     model = model.bind_tools(tools).with_fallbacks([m.bind_tools(tools) for m in fallbacks]) if fallbacks else model
@@ -224,7 +247,10 @@ async def _with_llm(h: Helper, text: str, past: list[dict]) -> str:
         "- For questions about money, limits or past payments, call my_account and answer from it.\n"
         "- To buy something, call find_shops first. If the customer named a shop, use that one. If not, choose the shop whose "
         "items best match the request, preferring one that is open and one they have paid before, and say in a few words why you chose it.\n"
-        "- Then call buy_tickets (venues) or order_food (food stalls) once. The customer confirms the total themselves in the app; do not ask them to confirm in words.\n"
+        "- Then call buy_tickets (venues), order_food (food stalls) or buy_at_counter (counters) once. If you chose the shop yourself, "
+        "put your reason in why_this_shop in a few words (e.g. 'open now and you have paid here before'); leave it empty if the customer named the shop. "
+        "The customer confirms the total themselves in the app; do not ask them to confirm in words.\n"
+        "- For a counter the customer must say an amount of money. If they gave none, ask how much they want to spend. When it is paid, tell them the code to show the cashier.\n"
         "- Report exactly what the tool returned. Never say something was paid unless the result is 'paid'. If it was not paid, say why.\n"
         "- You cannot change limits, add or withdraw money, or refund. Those are on the customer's Home screen (refunds come from the shop).\n"
         "- If no shop fits, say so and name what the shops do sell. Do not invent shops, items or prices."
@@ -250,7 +276,7 @@ async def _scripted(h: Helper, text: str) -> str:
     shops = await h.find_shops()
     named = [x for x in shops if any(len(w) > 3 and w in low for w in re.sub(r"\(.*?\)", "", x["name"]).lower().split())]
     wants_ticket = bool(re.search(r"\b(ticket|entry|admission)s?\b", low))
-    pool = named or [x for x in shops if (x["kind"] == "sells entry tickets") == wants_ticket and x["kind"] != "pay-at-counter only"]
+    pool = named or [x for x in shops if (x["kind"] == "sells entry tickets") == wants_ticket]
     hit = next((x for x in pool if any(len(w) > 3 and w in low for i in x["sells"] for w in i["name"].lower().split())), pool[0] if pool else None)
     if hit is None:
         return "I couldn't find a verified shop for that. Open Shops from Home to see what's available."
@@ -261,11 +287,18 @@ async def _scripted(h: Helper, text: str) -> str:
             if m:
                 tickets.append({"name": i["name"], "qty": {"one": 1, "a": 1, "an": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}.get(m.group(1)) or int(m.group(1))})
         r = await h.order(hit["shop_id"], text, tickets)
+    elif hit["kind"].startswith("counter"):
+        amount = re.search(r"(?:kes|ksh|sh)\.?\s*([\d,]+)|([\d,]{2,})\s*(?:kes|ksh|bob|shillings?)|\bfor\s+([\d,]{2,})\b|\bya\s+([\d,]{2,})\b", low)
+        item = next((i["name"] for i in hit["sells"] if any(len(w) > 2 and w in low for w in i["name"].lower().split())), "")
+        kes = int(next(g for g in amount.groups() if g).replace(",", "")) if amount else 0
+        r = await h.order(hit["shop_id"], text, spend={"item": item or text, "amount_kes": kes})
     else:
         r = await h.order(hit["shop_id"], text)
     if "error" in r:
         return r["error"]
     if r["result"] == "paid":
+        if r.get("collect_with_code"):
+            return f"Done. I paid {r['total']} at {r['shop']} for {r['bought']}. Show code {r['collect_with_code']} to the cashier to collect."
         return f"Done. I paid {r['total']} at {r['shop']}." + (" Your ticket is under Tickets." if r.get("is_ticket") else "")
     return f"Nothing was paid at {hit['name']}. {r.get('why', '')}".strip()
 
@@ -353,7 +386,10 @@ async def run_shop(account: Account, text: str, thread_id: str | None, emit: Emi
                 "- Answer in one to four short sentences of plain text, with the actual numbers. Compare with yesterday when it helps.\n"
                 "- You may point out something worth acting on (stock running low, a refused payment, a day that dipped) in one sentence.\n"
                 "- You only read. You cannot refund, withdraw, change prices, stock, hours, discounts or the split. If asked, say which "
-                "section of the console does it: Sales (refunds), Overview (withdraw), Tickets or Menu (prices and stock), Settings (about, discounts, split), Subscriptions (plans).\n"
+                "section of the console does it. Refunds are in the sales list, which is called 'Ticket sales' for a venue, 'Orders' for a food stall and 'Sales' for a counter "
+                "(use the name that fits this shop's type). Withdrawals are on Overview. Prices and stock are under 'Tickets', 'Menu and stock' or 'Price list'. "
+                "About, discounts and the split are under Settings. Plans are under Subscriptions.\n"
+                "- Sales figures are what customers actually paid, after any discount.\n"
                 "- Use only what the tools return. If the figures don't answer the question, say so."
             )
             agent = create_react_agent(model, tools, prompt=prompt)

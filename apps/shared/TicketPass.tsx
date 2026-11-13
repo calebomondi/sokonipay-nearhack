@@ -73,22 +73,27 @@ export function TicketPass({ r, animate = false }: { r: ReceiptData; animate?: b
   const look = LOOK[state]
   const left = t.admits - t.admitted
   const closes = t.valid_until_ms ? new Date(t.valid_until_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+  // A ticket sold after closing is for the next day.
+  const later = !!t.valid_until_ms && new Date(t.valid_until_ms).toDateString() !== new Date(now).toDateString()
+  const day = later ? 'tomorrow' : 'today'
+  const code = r.pickup_code
+  const label = code ? (state === 'used' ? 'Collected' : 'Ready to collect') : state === 'valid' && later ? 'Valid tomorrow' : look.label
 
   return (
-    <article className={`mx-auto w-full max-w-sm overflow-hidden rounded-[28px] bg-card shadow-[0_10px_30px_rgb(12_14_18/0.10)] ${animate ? 'rise' : ''}`} aria-label={`Ticket for ${r.shop}: ${look.label}`}>
+    <article className={`mx-auto w-full max-w-sm overflow-hidden rounded-[28px] bg-card shadow-[0_10px_30px_rgb(12_14_18/0.10)] ${animate ? 'rise' : ''}`} aria-label={`${code ? 'Purchase at' : 'Ticket for'} ${r.shop}: ${label}`}>
       <div className="relative h-56 overflow-hidden text-white transition-colors duration-700" style={{ background: look.bg }}>
         <Rings id={r.id} ink={look.ink} />
         {state === 'valid' && <div className="sweep pointer-events-none absolute inset-y-0 w-1/3 bg-white/20" aria-hidden />}
         <div className="absolute inset-0 flex flex-col justify-between p-5">
           <div className="flex items-start justify-between gap-3">
             <p className="text-lg font-bold leading-tight drop-shadow-sm">{r.shop}</p>
-            <p className="num rounded-full bg-black/25 px-2.5 py-1 text-xs font-semibold backdrop-blur-sm">#{r.id.replace(/^tkt-/, '').slice(0, 6).toUpperCase()}</p>
+            <p className="num rounded-full bg-black/25 px-2.5 py-1 text-xs font-semibold backdrop-blur-sm">{code ? `Code ${code}` : `#${r.id.replace(/^tkt-/, '').slice(0, 6).toUpperCase()}`}</p>
           </div>
           <div>
-            <p className="text-4xl font-extrabold leading-none tracking-tight drop-shadow-sm">{look.label}</p>
+            <p className="text-4xl font-extrabold leading-none tracking-tight drop-shadow-sm">{label}</p>
             <p className="num mt-1.5 text-sm font-medium opacity-95">
               {state === 'valid'
-                ? `${closes ? `Valid until ${closes} · ` : ''}Now ${new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                ? `${closes ? `Valid until ${closes}${later ? ' tomorrow' : ''} · ` : ''}Now ${new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
                 : state === 'expired' && closes ? `Closed at ${closes}` : ''}
             </p>
           </div>
@@ -99,6 +104,14 @@ export function TicketPass({ r, animate = false }: { r: ReceiptData; animate?: b
         {/* the notches where a paper ticket would tear */}
         <span className="absolute -left-3 -top-3 h-6 w-6 rounded-full bg-canvas" aria-hidden />
         <span className="absolute -right-3 -top-3 h-6 w-6 rounded-full bg-canvas" aria-hidden />
+        {code ? (
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-soft">{state === 'used' ? 'Handed over to you' : 'Show this code to the cashier'}</p>
+            <p className="num text-5xl font-extrabold tracking-[0.08em]">{code}</p>
+            {r.lines && <p className="mt-1.5 text-sm">{r.lines.map((l) => (l.qty > 1 ? `${l.qty} × ${l.name}` : l.name)).join(', ')}</p>}
+            <p className="num mt-1 text-sm text-soft">Paid {fmt(r.total)} <span className="text-xs">({usd(r.total)} sUSD)</span></p>
+          </div>
+        ) : (
         <div className="min-w-0 flex-1">
           <p className="text-sm text-soft">{state === 'used' ? 'Everyone on this ticket is in' : state === 'expired' ? 'This ticket was for' : 'Admits'}</p>
           <p className="text-3xl font-extrabold tracking-tight">
@@ -108,6 +121,7 @@ export function TicketPass({ r, animate = false }: { r: ReceiptData; animate?: b
           {r.lines && <p className="mt-1.5 text-sm">{r.lines.map((l) => `${l.qty} × ${l.name}`).join(', ')}</p>}
           <p className="num mt-1 text-sm text-soft">Paid {fmt(r.total)} <span className="text-xs">({usd(r.total)} sUSD)</span></p>
         </div>
+        )}
         <div className={`shrink-0 rounded-2xl border border-line p-2 ${state === 'valid' ? '' : 'opacity-30'}`}>
           <QRCodeSVG value={r.id} size={104} fgColor="#0c0e12" bgColor="#ffffff" level="M" />
         </div>
@@ -115,7 +129,8 @@ export function TicketPass({ r, animate = false }: { r: ReceiptData; animate?: b
 
       <div className="border-t border-dashed border-line px-5 py-3 text-xs text-soft">
         <p>
-          {state === 'valid' ? `Show this at the gate. It stops working ${closes ? `at ${closes}` : 'when the venue closes'} today.`
+          {code ? (state === 'valid' ? 'You have paid. The cashier hands over what you bought and marks it collected. It can be collected once.' : 'This purchase has been collected.')
+            : state === 'valid' ? `Show this at the gate. It stops working ${closes ? `at ${closes}` : 'when the venue closes'} ${day}.`
             : state === 'expired' ? 'The venue has closed for the day, so this ticket no longer opens the gate.'
             : 'This ticket has been used and can’t be used again.'}
         </p>

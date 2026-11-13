@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { api, type Limits, type ReceiptData, type Ticket } from '@shared/api'
 import { Profile } from '@shared/Profile'
 import { TicketPass } from '@shared/TicketPass'
+import { digits } from '@shared/Confirm'
 import { Button, Card, Meter, Money, Notice, ShopIcon, Tick, first, fmt, kesToMicro, toKes, when } from '@shared/ui'
 import { Scanner } from '@shared/Scanner'
 import AddMoney from './AddMoney'
@@ -10,7 +11,7 @@ import Chat from './Chat'
 import Subs from './Subs'
 import Withdraw from '@shared/Withdraw'
 
-type Row = { id: string; shop: string; kind: string; status: string; total: number; my_share: number | null; paid_at_ms: number | null; refunded_at_ms: number | null; subscription: string | null; ticket: Ticket | null }
+type Row = { id: string; shop: string; kind: string; status: string; total: number; my_share: number | null; paid_at_ms: number | null; refunded_at_ms: number | null; subscription: string | null; ticket: Ticket | null; pickup_code: string | null }
 type Wallet = {
   near_id: string; name: string; balance: number; limits: Limits | null; receipts: Row[]
   shops_used: { near_id: string; times: number; last: string }[]
@@ -20,6 +21,7 @@ type Wallet = {
 type Move = { key: string; at: number; amount: number; title: string; note: string; shop: boolean; to: string | null; ticket: boolean }
 type ShopRow = { near_id: string; name: string; blurb: string; place: string; verified: boolean; kind: string; open: boolean }
 type TicketKind = 'active' | 'used' | 'expired' | 'refunded'
+const kes = (n: number) => `KES ${n.toLocaleString('en-US')}`
 const kindOf = (r: Row): TicketKind => (r.status === 'Refunded' ? 'refunded' : r.ticket?.state === 'used' ? 'used' : r.ticket?.state === 'expired' ? 'expired' : 'active')
 // One colour per state, the same ones the full pass uses, so a glance is enough.
 const LOOKS: Record<TicketKind, { box: string; word: string; icon: string }> = {
@@ -107,11 +109,11 @@ export default function Home({ hasShop }: { hasShop: boolean }) {
   const moves: Move[] = [
     ...wallet.receipts.map((r): Move => ({
       key: r.id, at: r.paid_at_ms ?? 0, amount: -(r.my_share ?? r.total), title: r.shop, shop: true, to: `/r/${r.id}`, ticket: r.kind === 'Ticket',
-      note: r.kind === 'Ticket' ? `Entry ticket${r.status === 'Paid' && r.ticket && r.ticket.state !== 'valid' ? `, ${r.ticket.state}` : ''}` : r.kind === 'Group' ? 'Your share of a split bill' : r.subscription ? r.subscription.replace(/ subscription$/, ', subscription') : 'Order',
+      note: r.pickup_code ? `Bought at the counter${r.ticket?.state === 'used' ? ', collected' : ', to collect'}` : r.kind === 'Ticket' ? `Entry ticket${r.status === 'Paid' && r.ticket && r.ticket.state !== 'valid' ? `, ${r.ticket.state}` : ''}` : r.kind === 'Group' ? 'Your share of a split bill' : r.subscription ? r.subscription.replace(/ subscription$/, ', subscription') : 'Order',
     })),
     ...wallet.receipts.filter((r) => r.status === 'Refunded').map((r): Move => ({
       key: 'back-' + r.id, at: r.refunded_at_ms ?? r.paid_at_ms ?? 0, amount: r.my_share ?? r.total, title: r.shop, shop: true, to: `/r/${r.id}`, ticket: r.kind === 'Ticket',
-      note: r.kind === 'Ticket' ? 'Ticket refunded' : 'Refund',
+      note: r.kind === 'Ticket' && !r.pickup_code ? 'Ticket refunded' : 'Refund',
     })),
     ...wallet.added.map((a): Move => ({
       key: a.id, at: a.at_ms, amount: a.out ? -a.amount : a.amount, title: a.out ? 'Withdrawal' : 'Money added', shop: false, to: null, ticket: false,
@@ -125,7 +127,7 @@ export default function Home({ hasShop }: { hasShop: boolean }) {
       {sheet === 'scan' && <Scanner onCode={openCode} onClose={() => setSheet(null)} />}
       {sheet === 'add' && <AddMoney onClose={() => setSheet(null)} onAdded={load} />}
       {sheet === 'out' && <Withdraw balance={wallet.balance} onClose={() => setSheet(null)} onDone={load} />}
-      {sheet === 'limits' && lim && <LimitsSheet limits={lim} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); load() }} />}
+      {sheet === 'limits' && lim && <LimitsSheet limits={lim} onClose={() => setSheet(null)} onSaved={(next) => { setSheet(null); setWallet((w) => w && { ...w, limits: { ...w.limits!, ...next } }); load() }} />}
     </>
   )
 
@@ -209,12 +211,12 @@ export default function Home({ hasShop }: { hasShop: boolean }) {
           )}
 
           <Card>
-            <div className="flex items-baseline justify-between gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h2 className="font-semibold">Agent spend limit today</h2>
-              <p className="num text-sm"><span className="font-semibold">{fmt(left)}</span> <span className="text-soft">of {fmt(lim?.per_day ?? 0)}</span></p>
+              <p className="num whitespace-nowrap text-sm"><span className="font-semibold">{fmt(left)}</span> <span className="text-soft">of {lim?.per_day_kes ? kes(lim.per_day_kes) : fmt(lim?.per_day ?? 0)}</span></p>
             </div>
             <div className="mt-3"><Meter used={lim?.spent_in_window ?? 0} max={lim?.per_day ?? 0} /></div>
-            <p className="mt-3 text-sm text-soft">Up to <span className="num font-medium text-ink">{fmt(lim?.per_payment ?? 0)}</span> per payment.</p>
+            <p className="mt-3 text-sm text-soft">Up to <span className="num font-medium text-ink">{lim?.per_payment_kes ? kes(lim.per_payment_kes) : fmt(lim?.per_payment ?? 0)}</span> per payment.</p>
           </Card>
 
           <section>
@@ -374,9 +376,9 @@ function Loading() {
 /** A row of filter pills. */
 function Chips<K extends string>({ label, value, onPick, options }: { label: string; value: K; onPick: (k: K) => void; options: [K, string, number?][] }) {
   return (
-    <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]" role="group" aria-label={label}>
+    <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]" role="group" aria-label={label}>
       {options.map(([k, text, n]) => (
-        <button key={k} aria-pressed={value === k} onClick={() => onPick(k)} className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium ${value === k ? 'bg-ink text-white' : 'bg-card hover:bg-line'}`}>
+        <button key={k} aria-pressed={value === k} onClick={() => onPick(k)} className={`shrink-0 rounded-full px-3 py-2 text-[13px] font-medium ${value === k ? 'bg-ink text-white' : 'bg-card hover:bg-line'}`}>
           {text}{n !== undefined && <span className={`num ml-1.5 ${value === k ? 'opacity-70' : 'text-soft'}`}>{n}</span>}
         </button>
       ))}
@@ -417,7 +419,7 @@ function TicketRow({ r, open, onToggle }: { r: Row; open: boolean; onToggle: () 
         <span className="min-w-0 flex-1">
           <span className="block truncate font-bold">{r.shop}</span>
           <span className="block truncate text-sm text-soft">
-            {valid ? `Admits ${t!.admits - t!.admitted}${until ? `, until ${until} today` : ''}` : `${look.word}${r.paid_at_ms ? `, bought ${when(r.paid_at_ms)}` : ''}`}
+            {valid ? (r.pickup_code ? `Code ${r.pickup_code}, show it to the cashier` : `Admits ${t!.admits - t!.admitted}${until ? `, until ${until} ${new Date(t!.valid_until_ms).toDateString() === new Date().toDateString() ? 'today' : 'tomorrow'}` : ''}`) : `${r.pickup_code && kindOf(r) === 'used' ? 'Collected' : look.word}${r.paid_at_ms ? `, bought ${when(r.paid_at_ms)}` : ''}`}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-fill px-3 py-1.5 text-sm font-semibold">
@@ -428,7 +430,7 @@ function TicketRow({ r, open, onToggle }: { r: Row; open: boolean; onToggle: () 
       <div className={`reveal ${open ? 'open' : ''}`}>
         <div>
           <div className="px-1 pb-2 pt-3">
-            {back ? <Notice tone="good">{r.shop} refunded this ticket in full: {fmt(r.my_share ?? r.total)} went back to your balance. It no longer opens the gate.</Notice>
+            {back ? <Notice tone="good">{r.shop} refunded this in full: {fmt(r.my_share ?? r.total)} went back to your balance.{r.pickup_code ? '' : ' It no longer opens the gate.'}</Notice>
               : full ? <TicketPass r={full} /> : <div className="skeleton mx-auto h-96 w-full max-w-sm !rounded-[28px]" />}
           </div>
         </div>
@@ -505,9 +507,9 @@ function Action({ label, onClick, disabled, children }: { label: string; onClick
   )
 }
 
-function LimitsSheet({ limits, onClose, onSaved }: { limits: Limits; onClose: () => void; onSaved: () => void }) {
-  const [perPayment, setPerPayment] = useState(String(toKes(limits.per_payment)))
-  const [perDay, setPerDay] = useState(String(toKes(limits.per_day)))
+function LimitsSheet({ limits, onClose, onSaved }: { limits: Limits; onClose: () => void; onSaved: (next: Partial<Limits>) => void }) {
+  const [perPayment, setPerPayment] = useState(String(limits.per_payment_kes ?? toKes(limits.per_payment)))
+  const [perDay, setPerDay] = useState(String(limits.per_day_kes ?? toKes(limits.per_day)))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const save = async (e: React.FormEvent) => {
@@ -515,8 +517,9 @@ function LimitsSheet({ limits, onClose, onSaved }: { limits: Limits; onClose: ()
     setBusy(true)
     setError('')
     try {
-      await api('/api/wallet/limits', { body: { per_payment: kesToMicro(Number(perPayment)), per_day: kesToMicro(Number(perDay)) } })
-      onSaved()
+      await api('/api/wallet/limits', { body: { per_payment: kesToMicro(Number(perPayment)), per_day: kesToMicro(Number(perDay)), per_payment_kes: Math.round(Number(perPayment)), per_day_kes: Math.round(Number(perDay)) } })
+      // Shown at once; the contract's own figures replace them when the next read comes back.
+      onSaved({ per_payment: kesToMicro(Number(perPayment)), per_day: kesToMicro(Number(perDay)), per_payment_kes: Math.round(Number(perPayment)), per_day_kes: Math.round(Number(perDay)) })
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
@@ -529,10 +532,10 @@ function LimitsSheet({ limits, onClose, onSaved }: { limits: Limits; onClose: ()
         <h2 className="text-2xl font-bold">What your agent may spend</h2>
         <p className="text-sm text-soft">Only you can change these. The NEAR contract refuses any payment by your agent that goes over. Your agent’s key can pay invoices; it can’t withdraw or raise its own limits.</p>
         <label className="block text-sm font-medium">Per payment, in shillings
-          <input className={field} inputMode="numeric" value={perPayment} onChange={(e) => setPerPayment(e.target.value)} />
+          <input className={field} inputMode="numeric" value={perPayment} onChange={(e) => setPerPayment(digits(e.target.value))} />
         </label>
         <label className="block text-sm font-medium">Per day, in shillings
-          <input className={field} inputMode="numeric" value={perDay} onChange={(e) => setPerDay(e.target.value)} />
+          <input className={field} inputMode="numeric" value={perDay} onChange={(e) => setPerDay(digits(e.target.value))} />
         </label>
         {error && <Notice>{error}</Notice>}
         <div className="flex gap-2">

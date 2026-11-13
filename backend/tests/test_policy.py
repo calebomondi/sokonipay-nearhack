@@ -1,5 +1,5 @@
 from app.accounts import DEFAULT_RULES
-from app import fx
+from app import fx, policy
 from app.policy import (MICRO, Line, allowed_discount, allowed_discount_bps, apply_discount, parse_goal, price_request,
                         scripted_basket, share_of, subtotal, trim_to_budget)
 
@@ -82,3 +82,37 @@ def test_trim_and_shares():
     total = 10 * MICRO + 1
     shares = [share_of(total, 3, n) for n in range(3)]
     assert sum(shares) == total and shares[0] == shares[1]
+
+
+# ---- a counter: the customer names the money, the price list decides the quantity
+
+DIESEL = {"sku": "diesel", "name": "Diesel", "price_kes": 125, "tags": ["counter", "unit:litre"]}
+BREAD = {"sku": "bread", "name": "Bread", "price_kes": 65, "tags": ["counter", "unit:loaf", "whole"]}
+
+
+def test_amount_buys_a_measured_quantity():
+    b = policy.amount_buys(DIESEL, 1500)
+    assert b.ok and b.charge_kes == 1500 and b.what == "Diesel, 12 litres" and b.qty == 0
+    assert "12 litres of Diesel at KES 125 a litre" in b.says
+
+
+def test_amount_buys_whole_units_and_charges_only_for_them():
+    b = policy.amount_buys(BREAD, 200)
+    assert b.ok and b.qty == 3 and b.charge_kes == 195  # never the full 200 for three loaves
+    assert not policy.amount_buys(BREAD, 50).ok  # less than one loaf buys nothing
+    free = policy.amount_buys(None, 400, "airtime")  # nothing listed: the money goes through with a note
+    assert free.ok and free.charge_kes == 400 and free.what == "airtime"
+
+
+def test_ticket_sold_while_closed_is_for_the_next_opening():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Africa/Nairobi")
+    hours = {"open": "06:00", "close": "18:00", "tz": "Africa/Nairobi"}
+    late = policy.gate_now(hours, datetime(2026, 11, 13, 23, 40, tzinfo=tz))
+    assert not late.open and late.ticket_day == "tomorrow"
+    assert datetime.fromtimestamp(late.closes_at_ms / 1000, tz) == datetime(2026, 11, 14, 18, 0, tzinfo=tz)
+    early = policy.gate_now(hours, datetime(2026, 11, 13, 3, 0, tzinfo=tz))
+    assert not early.open and early.ticket_day == "today"
+    assert datetime.fromtimestamp(early.closes_at_ms / 1000, tz) == datetime(2026, 11, 13, 18, 0, tzinfo=tz)
+    assert policy.gate_now(hours, datetime(2026, 11, 13, 12, 0, tzinfo=tz)).ticket_day == ""

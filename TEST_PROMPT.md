@@ -17,11 +17,12 @@ SokoniPay lets a customer's AI agent pay a shop's AI agent. Shops price in Kenya
 
 The steps below say "the user app" and "the console". Both sets of addresses use the same database, so the same shops and balances appear in both. Use the local addresses only if the user tells you to.
 
-**Accounts and data that already exist.** This is not a clean start:
+**This is a clean start.** The database is empty: no users, no shops, no payments. Everything you see should be something you created in this test. Report anything else.
 
-- The **admin** Google account (ask the user which one if you are not told) has a user account and owns the venue "Nairobi Arboretum (demo)".
-- A **second** Google account has a user account and owns the food stall "Mama Njeri's Kitchen (demo)".
-- Both shops are verified. Both user accounts have a balance, earlier payments and possibly earlier chats.
+You need two Google accounts:
+
+- The **admin** account (ask the user which one if you are not told). Only it can open the admin page and verify shops. In this test it becomes a customer, opens the venue "Nairobi Arboretum", and later opens a second shop.
+- A **second** account. It opens the food stall "Mama Njeri's Kitchen" and pays one share of a split bill.
 
 Rules the tests rely on:
 
@@ -35,7 +36,7 @@ Rules the tests rely on:
 
 How to work:
 
-- **Write down the starting numbers** before you change anything: each user's balance, the "Agent spend limit today" line, and each shop's Balance card. All money checks are against these.
+- A new user starts with 50.00 sUSD (about KES 6,500), limits of about KES 2,600 per payment and KES 5,200 per day, and nothing else. A new shop starts with a balance of KES 0. All money checks are against these.
 - Steps that write to the NEAR network take time. Most take 3 to 15 seconds. An order placed by chat takes 30 to 60 seconds. Wait up to 90 seconds before calling something stuck.
 - When a step fails, copy the exact words on screen, try once more, then carry on with the next step that does not depend on it.
 - Keep a list of every amount spent, added, withdrawn and refunded.
@@ -43,6 +44,7 @@ How to work:
 
 Do the parts in order:
 
+0. Part 0: set up one user and one venue.
 1. Part 1: user end, layout and navigation.
 2. Part 2: merchant end, the console and the shop's profile.
 3. Part 3: user end, a shop's page, tickets, limits and money.
@@ -54,12 +56,35 @@ Do the parts in order:
 
 ---
 
+## Part 0. Set up one user and one venue
+
+### S0.1 First sign-in as a user
+1. Open the user app. Before signing in, expect the SokoniPay mark (a violet "S" with two leaves) at the top, the heading "Your agent pays the shop's agent.", three white cards and a black "Continue with Google" button.
+2. Sign in with the admin account. Expect a "Welcome" screen with four steps ticking off (a NEAR account, demo money, limits, the agent's key), then the home screen in about 20 to 30 seconds.
+3. Expect a balance of about KES 6,500 with "50.00 sUSD on NEAR", "Agent spend limit today" at about KES 5,200 of KES 5,200, "Up to KES 2,600 per payment", "No shops yet…" under Shops, and "Nothing yet…" under Recent payments.
+
+### S0.2 Open the venue
+1. Open the console in another tab at full width and sign in with the admin account. Expect "What are you opening?" with three choices, each with an icon: "A park, venue or event", "A food stall or kitchen", "A counter or till".
+2. Pick the venue. Expect a step line "1 Type, 2 Name and place, 3 Tickets", a form on the left, and on the right "How customers will see it": a preview card that fills in as you type.
+3. With the name empty, expect "Next: tickets" to be greyed. Type the name `Nairobi Arboretum`, the place `State House Road, Nairobi`, and the description `A forest park in the city. Walking trails, picnic lawns and over 350 tree species.` Set the gate hours to `06:00` to `23:59`. Expect all of it in the preview, with a pin icon and a clock icon.
+4. Click "Next: tickets". Click "Start with rows for: Adult, Child, Student". Expect three rows with names and empty prices. Type `250`, `100` and `150`. Expect the three tickets and prices in the preview. Expect "Open my venue" to be greyed until at least one row has a name and a price.
+5. Click "Open my venue". Expect "Opening your shop" with four steps, then the console in about 25 seconds.
+6. Expect "Not verified yet", an amber banner saying it is waiting for SokoniPay, and a grey box where the code will be. In the user app, reload: the venue must **not** be listed yet.
+
+### S0.3 Verify it
+1. In the console click "Admin". Expect the venue listed as "Venue", "Pending", with a "Verify shop" button, and "Customers 1".
+2. Click "Verify shop". Expect "Approved" in about 10 seconds. Click "My shop".
+3. Expect a blue checkmark beside the name, the framed code on the right, and a checklist "You're open".
+4. In the user app, reload. Expect "Nairobi Arboretum" under Shops with a blue checkmark.
+
+---
+
 ## Part 1. User end: layout and navigation
 
-Sign in to the user app with the admin account.
+Use the user app, signed in with the admin account.
 
 ### U1. The frame
-1. Before signing in, expect the SokoniPay mark (a violet "S" with two leaves) at the top of the page in place of the word "SokoniPay", and the same mark as the browser tab's icon.
+1. Expect the SokoniPay mark as the browser tab's icon.
 2. Signed in, with the window about 1280 px wide, expect a background of faint outline shapes scattered at different angles, and the app in a frosted column in the middle with rounded corners.
 3. Scroll the content. Expect the background shapes not to move.
 4. Make the window 400 px wide. Expect the column to fill the window edge to edge, with nothing cut off. Go back to full width.
@@ -86,17 +111,17 @@ Sign in to the user app with the admin account.
 1. On Home click "All shops". Expect the title "Shops", your balance in small type, a search box and a black "Scan" button. These stay still when the list scrolls.
 2. Expect each shop to have a square icon with rounded corners and its initials, each shop in its own soft colour, and a blue checkmark right after the name of a verified shop.
 3. Expect the venue's icon to carry a small dot: green when open, grey when closed.
-4. Expect the shop you paid most recently to be first, and each shop you have paid to say "paid once" or "paid N times".
+4. Expect one shop for now. After Part 3, come back: the shop you paid most recently is first, and each shop you have paid says "paid once" or "paid N times".
 5. Type `arbor`. Expect only the Arboretum. Type `zzz`. Expect "No shop matches that. If you're at the shop, scan its code." Clear the box.
 
 ### U5. Tickets
-1. Click "Tickets". Expect filter pills that stay still: "All", "Active", "Used", "Expired", "Refunded", each with a count.
+1. Click "Tickets". Expect filter pills that stay still: "All", "Active", "Used", "Expired", "Refunded", each with a count. There are no tickets yet: expect "No tickets yet…". **Do steps 2 to 4 after Part 3**, when you have tickets.
 2. Expect every ticket row to be a white card that starts with a coloured rounded square: green with a tick (active), grey (used), orange with a clock (expired), blue-grey with a return arrow (refunded).
 3. Click each filter. Expect only tickets of that kind, and the count to match the rows. An empty filter says "No <kind> tickets."
 4. Click a ticket row. Expect the full ticket to open directly under that row, with the rows below sliding down. The page address must not change. Click a second ticket: the first closes. Click "Hide": it closes.
 
 ### U6. Activity
-1. Click "Activity". Expect filter pills that stay still: "All", "Tickets", "Orders", "Money in", "Withdrawn".
+1. Click "Activity". Expect filter pills that stay still: "All", "Tickets", "Orders", "Money in", "Withdrawn", and "Nothing here yet." **Do steps 2 and 3 after Part 3.**
 2. Expect lines grouped under "Today", "Yesterday" or a dated heading, newest first, each with a time in Nairobi time.
 3. Click each filter. Expect only matching lines. Click a payment line: expect its receipt or ticket page. Use the browser's back button to return.
 
@@ -104,7 +129,7 @@ Sign in to the user app with the admin account.
 
 ## Part 2. Merchant end: the console and the shop's profile
 
-Open the console in another tab at full width, signed in with the admin account.
+Use the console, signed in with the admin account.
 
 ### M1. The floating bar
 1. Expect a rounded bar that stays at the top when you scroll, with: the SokoniPay mark; the sections "Overview", "Ticket sales", "Tickets", "Subscriptions", "Settings"; then "Daily statement" and "Admin"; a button showing the shop's initials and name; and your profile photo.
@@ -113,21 +138,23 @@ Open the console in another tab at full width, signed in with the admin account.
 4. Expect pure blue to be used sparingly: the main button on a card, a few links, the focus outline and the "Ask your agent" button. Report it if large areas are blue.
 
 ### M2. The shop's profile card
-1. Below the bar, expect a card showing the shop as customers see it: a coloured square with "NA", "Nairobi Arboretum (demo)" with a blue checkmark, "Park or venue", then a pin icon with the place, a clock icon with "Open now" or "Closed now" and the hours, and a shield icon with the NEAR account.
-2. If the shop has no description, expect a dashed box inviting you to add one.
-3. Click "Edit". Expect the card to turn into a form: a description box with a "0 of 200" counter, the place, and the opening hours.
-4. Type this description: `A forest park in the city. Walking trails, picnic lawns and over 350 tree species.` Set the hours to `06:00` to `23:59`. Click "Save".
-5. Expect the form to close and the card to show the description and "06:00 to 23:59" without a reload.
+1. Below the bar, expect a card showing the shop as customers see it: a coloured square with "NA", "Nairobi Arboretum" with a blue checkmark, "Park or venue", the description you typed, then a pin icon with the place, a clock icon with "Open now" and "06:00 to 23:59", and a shield icon with the NEAR account.
+2. Click "Edit". Expect the card to turn into a form: the description with a counter out of 200, the place, and the opening hours.
+3. Add ` Open every day.` to the end of the description. Click "Save".
+4. Expect the form to close and the card to show the new description without a reload.
+5. Delete the whole description and save. Expect a dashed box inviting you to add one. Click it, put the description back, and save.
 6. Click "Edit", change something, then "Cancel". Expect nothing to change.
 7. Click "Edit", set opening and closing to the same time and save. Expect "Opening and closing time can't be the same."  Cancel.
 
 ### M3. Set round prices
-1. Click "Tickets". The price column is headed "Price, KES".
-2. Click "Edit" on Adult, type `250`, "Save". Do the same for Child: `100`. Student: `150`.
+1. Click "Tickets". The price column is headed "Price, KES". Expect Adult 250, Child 100 and Student 150.
+2. Click "Edit" on Student, type `160`, "Save". Expect 160. Set it back to `150`.
 3. Add `Senior` at `120`, then edit it and click "Remove". Expect it added, then gone.
 4. Try to add a ticket with price `0`. Expect the button to stay greyed.
 
 ### M4. Overview: cards and charts
+Nothing has been sold yet, so the figures are zero and the charts are empty. Check the layout now, and **come back after Part 3** to check the numbers (steps 3, 4, 6, 7 and 8).
+
 1. Click "Overview". Expect four cards in a row:
    - "Balance" on black, with the amount, "… sUSD on NEAR" and a white "Withdraw" button.
    - "Today" with today's sales in KES, the number of sales, a small up or down chip against yesterday, and a trend line.
@@ -165,7 +192,7 @@ Use the admin account in the user app.
 2. Below it expect "How many tickets?" with "KES 250 each" for Adult, "KES 100 each" for Child and "KES 150 each" for Student.
 
 ### U8. Set known limits
-1. On Home read the "Agent spend limit today" card: "KES A of KES B". The amount already spent in the last 24 hours is B minus A. Write it down as S.
+1. On Home read the "Agent spend limit today" card: "KES A of KES B". The amount already spent in the last 24 hours is B minus A. Write it down as S. On a fresh account S is 0.
 2. Click "Limits". Expect a sheet that slides up from the bottom edge of the column and stays attached to the bottom, even at full window width. Expect two boxes in shillings and a sentence saying only you can change these.
 3. Set per payment to `2000` and per day to S + 3000. Save. Expect the card to read about "KES 3,000 of KES …" and "Up to KES 2,000 per payment."
 4. Open Limits again, set per payment higher than per day, and save. Expect "The per-payment limit can't be higher than the daily limit". Cancel.
@@ -229,14 +256,14 @@ Use the admin account in the user app.
 
 ### C3. Buying, with a confirmation
 1. Type `Get me 2 adult tickets at the Arboretum`. Expect, in order:
-   - small grey lines "Looking through verified shops" and "Talking to Nairobi Arboretum (demo)'s agent"
-   - an open card "Your agent and Nairobi Arboretum (demo)'s agent" showing both agents' messages
-   - an outlined card "Shall I pay Nairobi Arboretum (demo)?", "2 × Adult", the total, "Not now", "Yes, pay" and a countdown
+   - small grey lines "Looking through verified shops" and "Talking to Nairobi Arboretum's agent"
+   - an open card "Your agent and Nairobi Arboretum's agent" showing both agents' messages
+   - an outlined card "Shall I pay Nairobi Arboretum?", "2 × Adult", the total, "Not now", "Yes, pay" and a countdown
 2. Check the balance in another tab: **nothing has been paid yet**.
 3. Click "Not now". Expect "You said no. Nothing was paid." and an answer saying so. The balance is unchanged.
 4. Send the same request and click "Yes, pay". Expect the payment, a ticket in the chat, and an answer saying it paid. The balance drops by KES 500.
 5. On the conversation card click "Hide", then "Read". Expect it to fold and unfold.
-6. Type `Find me something to eat under KES 500`. Expect the agent to choose the food stall, say why, and stop at "Shall I pay" with a total of KES 500 or less. Click "Not now".
+6. Type `Find me something to eat`. No food stall exists yet. Expect the agent to say so and to name what the venue does sell. It must not invent a shop or pay anything. (After Part 6, ask `Find me something to eat under KES 500`: expect it to choose the food stall, say why, and stop at "Shall I pay" with a total of KES 500 or less. Click "Not now".)
 
 ### C4. Separate chats
 1. Reload and open Chat. Expect the same chat to open with its messages.
@@ -267,7 +294,8 @@ Use the console (admin account, the Arboretum).
 1. On ticket A (KES 600, nobody admitted) click "Refund in full". Expect a confirmation naming the amount and the customer. Cancel: nothing changes.
 2. Click again and confirm. Expect "Refunded" within about 15 seconds, the line struck through, and the Balance down by KES 600.
 3. In the user app: expect the balance up by KES 600, a green "+KES 600" line marked "Ticket refunded" in Activity, and ticket A under the "Refunded" filter in Tickets.
-4. Click "Refund in full" on ticket B (one person is in). Expect "Not refunded: someone has already gone in on this ticket."
+4. Look at ticket B (one person is in). Expect no refund button on it: in its place, "Can't refund: 1 of 5 already in". This shows on both Overview and Ticket sales.
+5. Every confirmation in both apps is a sheet drawn by the app (from the bottom on a phone, centred on a wide screen), never a browser dialog. Escape or a click outside it cancels.
 
 ### M8. The split, savings and withdrawing
 1. In "Settings" → "Split every sale", set savings `20` and partner `10`. Save. Expect "Saved. The next sale is split this way."
@@ -297,18 +325,20 @@ Use the console (admin account, the Arboretum).
 5. Pick yesterday, then a date with no sales. Expect "Nothing was sold or refunded on this day."
 
 ### M12. Admin
-1. Click "Admin". Expect both shops with Nairobi times. Do not suspend anything.
+1. Click "Admin". Expect the venue with a Nairobi time, and the latest orders. Do not suspend anything.
 
 ---
 
 ## Part 6. The food stall, both ends
 
-### F1. The stall's console (second account)
-1. In the console open the profile menu and sign out. Sign in with the second Google account.
-2. Expect "Mama Njeri's Kitchen (demo)" with a checkmark, "Food and drink", a code that changes every 10 seconds, and **no** "At the gate" card.
-3. In the profile card click "Edit", add the description `Home-style Kenyan lunches, cooked fresh every morning.`, tick "Show opening hours on my page", set `08:00` to `20:00`, and save.
-4. In "Menu and stock" set round prices: Beef pilau `450`, Nyama choma `800`, Githeri bowl `350`, Chapati `80`, Sukuma wiki `150`, Masala chai `80`.
-5. In the user app (still the admin account), check you are still signed in. Signing out of the console must not sign the user app out.
+### F1. Open the stall (second account), then verify it (admin)
+1. In the console open the profile menu and sign out. Sign in with the second Google account. Expect "What are you opening?". There is no "Admin" link for this account.
+2. Pick "A food stall or kitchen". Name `Mama Njeri's Kitchen`, place `Stall 9, Gikomba Market`, description `Home-style Kenyan lunches, cooked fresh every morning.` Tick "Show opening hours on my page" and set `08:00` to `20:00`.
+3. Click "Next: menu". Add six rows: Beef pilau, Main, `450`; Nyama choma, Main, `800`; Githeri bowl, Main, `350`; Chapati, Side, `80`; Sukuma wiki, Side, `150`; Masala chai, Drink, `80`. Click "Open my stall". Expect the console in about 25 seconds, "Not verified yet".
+4. Open the console address + `/admin`. Expect "This page is for SokoniPay admins."
+5. Sign out of the console, sign in as the admin, open "Admin", and click "Verify shop" on the stall. Sign out, and sign back in with the second account.
+6. Expect "Mama Njeri's Kitchen" with a checkmark, "Food and drink · Agent: …", a code that changes every 10 seconds, and **no** "At the gate" card. In "Settings" expect three discount rules already there (for larger orders and groups).
+7. In the user app (still the admin account), check you are still signed in. Signing out of the console must not sign the user app out.
 
 ### F2. Order by chat
 1. In the user app open the stall. Expect the header card with the description, the place, the hours, and suggestion chips including "Something for me, under 800".
@@ -320,7 +350,7 @@ Use the console (admin account, the Arboretum).
 
 ### F4. Refund and split
 1. In the stall console refund the KES 240 order. Expect "Refunded", stock back up, and a green "+KES …" line in the user app.
-2. In the user app choose 2 people and order `lunch for two`. Expect "Your share is paid. Waiting for 1 more." and a link. Open the link as the second account, pay, and expect a receipt showing both shares.
+2. In the user app choose 2 people and order `lunch for two`. Expect "Your share is paid. Waiting for 1 more." and a link. Open the link in a private window and sign in with the second account. This is that account's first time in the user app, so expect the "Welcome" steps first, then the bill with "Your share" in KES. Click "Pay my share". Expect a receipt showing both shares.
 
 ### F5. Subscriptions
 1. In the stall console open "Subscriptions". Add `Lunch club`, `150`, "every 5 minutes (for testing)". Expect it listed with "0 subscribers".
@@ -341,7 +371,7 @@ Use the console (admin account, the Arboretum).
 Sign in to the console with the admin account.
 
 ### S1. Open another shop
-1. Click the button with the shop's name in the bar. Expect "Your shops" listing the Arboretum, and "Open another shop".
+1. Click the button with the shop's name in the bar. Expect "Your shops" listing the Arboretum only, and "Open another shop".
 2. Click "Open another shop". Expect "What is the new shop?" with three choices, each with an icon. Pick "A counter or till".
 3. Expect a step line "1 Type, 2 Name and place", a form, and on the right "How customers will see it": a preview card that fills in as you type, with the shop's own coloured code.
 4. Type the name `Kilimani Service Station`, a place and a description. Expect all three in the preview. Click "Open my counter". Expect "Opening your shop" with four steps, then the new shop's console in about 25 seconds.
@@ -349,11 +379,29 @@ Sign in to the console with the admin account.
 6. Open the shop switcher. Expect both shops, with the counter marked "waiting to be verified". Switch to the Arboretum and back. Expect each shop's own figures.
 
 ### S2. Verify it and take a payment
-1. Go to "Admin". Expect the counter listed as "Counter" and pending. Click "Verify shop". Expect "Approved" in about 10 seconds. Click "My shop" and switch to the counter.
-2. Expect a checklist "You're open" and a "Charge a customer" card. Type `1500` and `Diesel, 12 litres`, click "Ask for payment". Expect "KES 1,500, Diesel, 12 litres, Waiting for the customer to scan" with a code and "Cancel".
-3. In the user app open the counter from "All shops". Expect the header card, then "Diesel, 12 litres", "KES 1,500" and "Pay KES 1,500". Pay. Expect a receipt, and in the console the amount gone from the waiting list and a paid sale.
-4. Key in another amount and click "Cancel". Expect the user's page to say "Waiting for the cashier".
-5. With the user's page open and nothing keyed in, key in an amount. Expect it on the user's page within about 5 seconds without reloading.
+1. Go to "Admin". Expect three shops: the venue, the stall and the counter, with the counter listed as "Counter" and pending. Click "Verify shop". Expect "Approved" in about 10 seconds. Click "My shop" and switch to the counter.
+2. Expect a checklist "You're open", a "To hand over" card with a "Read payments aloud" button, and an "Or key in an amount" card.
+
+### S3. The price list
+1. Open "Price list". Add `Diesel`, `125`, `litre`. Add `Bread`, `65`, `loaf`, and tick "Whole only". Expect both rows, with "litre" and "loaf, whole only" under "For each".
+
+### S4. The customer names the money (the main way to pay at a counter)
+1. In the user app open the counter from "All shops". Expect the header card, then "How much do you want to spend?" with a button for each item showing its price ("KES 125 a litre").
+2. Pick Diesel and type `1500`. Expect, within a second, a green line "KES 1,500 buys 12 litres of Diesel at KES 125 a litre." and the button "Pay KES 1,500". Letters typed into the amount box don't appear.
+3. Pick Bread and type `200`. Expect "KES 200 buys 3 loaves of Bread at KES 65 a loaf. I'll charge KES 195, not KES 200." and "Pay KES 195". Type `50`. Expect a red line saying it doesn't cover one loaf, and the button greyed.
+4. Go back to Diesel and `1500`, and pay. Expect the two agents' conversation (the shop's agent says what the amount buys), then a green pass "Ready to collect" with a three-digit code, "Diesel, 12 litres" and "Paid KES 1,500". The balance drops by KES 1,500.
+5. In the console, without reloading: expect the sale under "To hand over" within about 5 seconds, with the same three-digit code, "Diesel, 12 litres" and the customer's name. If "Read payments aloud" is on, the payment is spoken.
+6. In the sales list, expect "Refund in full" on this sale. Don't click it. Click "Handed over". Expect "Handed over to … (code …)", the row gone from "To hand over", and the sale now showing "Can't refund: handed over". In the user app the pass turns grey and says "Collected".
+7. Buy Bread for `200` and, in the console, refund it before handing over. Expect "Refunded" and the user's balance back up by KES 195.
+
+### S5. By chat
+1. In the user app's Chat type `Get me diesel for 1,000 at Kilimani`. Expect the confirmation card with "Kilimani Service Station says: KES 1,000 buys 8 litres of Diesel at KES 125 a litre." and a total of KES 1,000. Click "Not now". Expect "You said no, so nothing was ordered or paid."
+2. Send it again and click "Yes, pay". Expect the green pass with a code, and a reply that tells you the code to show the cashier.
+
+### S6. The cashier keys in the amount (for a sale where the amount isn't known first)
+1. In the console's "Or key in an amount" card type `800` and `Puncture repair`, click "Ask for payment". Expect "KES 800, Puncture repair, Waiting for the customer to scan" with a code and "Cancel".
+2. In the user app open the counter. Expect a card "The cashier asks for: Puncture repair", "KES 800" and "Pay KES 800" above the buy-by-amount card. Pay. Expect a receipt, and in the console the amount gone from the waiting list and a paid sale.
+3. Key in another amount and click "Cancel". Expect it gone from the user's page within about 5 seconds.
 
 ---
 
@@ -386,13 +434,13 @@ Write it in this shape so it can be pasted back to the developer.
 
 **1. Summary.** Three or four sentences: which addresses you tested (hosted or local), how far you got, what works, and the most serious problems. Say plainly what you could not test.
 
-**2. Results: user end.** One row per step (U1 to U16, C1 to C5, F2 to F5).
+**2. Results: user end.** One row per step (S0.1, U1 to U16, C1 to C5, F2 to F5).
 
 | Step | Result | What you saw |
 |---|---|---|
 | U1 | Pass / Fail / Partly / Skipped | One line. For anything but a pass, the exact words on screen. |
 
-**3. Results: merchant end.** The same table for M1 to M12, F1, F6, S1 and S2.
+**3. Results: merchant end.** The same table for S0.2, S0.3, M1 to M12, F1, F6 and S1 to S6.
 
 **4. Results: across both sites.** The same table for Part 8, items 1 to 10.
 

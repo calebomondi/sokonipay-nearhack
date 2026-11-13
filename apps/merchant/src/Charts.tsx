@@ -84,10 +84,10 @@ export function SalesChart({ days }: { days: Day[] }) {
 }
 
 /** Today's money by the hour as a filled curve, against the dotted average of the last two weeks at each hour. */
-export function HoursChart({ hours, usual }: { hours: number[]; usual: number[] }) {
+export function HoursChart({ hours, usual, nowHour }: { hours: number[]; usual: number[]; nowHour?: number }) {
   const busy = hours.map((v, h) => (v > 0 || usual[h] > 0 ? h : -1)).filter((h) => h >= 0)
   const from = Math.min(6, ...busy), to = Math.max(21, ...busy)
-  const now = new Date().getHours()
+  const now = nowHour ?? new Date().getHours() // the shop's clock, from the server, not this computer's
   const data = hours.slice(from, to + 1).map((v, i) => ({ hour: from + i, today: from + i <= now ? v : null, usual: usual[from + i] }))
   const so_far = hours.reduce((a, b) => a + b, 0)
   const typical = usual.slice(0, now + 1).reduce((a, b) => a + b, 0)
@@ -121,7 +121,7 @@ export function HoursChart({ hours, usual }: { hours: number[]; usual: number[] 
       </div>
       <p className="mt-2 flex gap-4 text-xs text-soft">
         <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded bg-iris" />Today</span>
-        <span className="flex items-center gap-1.5"><span className="h-0 w-4 border-t-2 border-dashed border-soft" />Average of the last 14 days</span>
+        <span className="flex items-center gap-1.5"><span className="h-0 w-4 border-t-2 border-dashed border-soft" />A usual day: the average of days with sales in the last 14</span>
       </p>
     </div>
   )

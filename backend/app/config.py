@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,9 @@ class Settings(BaseSettings):
     supabase_base_url: str = ""
     supabase_anon_key: str = ""
     supabase_db_conn_str: str = ""
+    # Any Postgres. When set it is used instead of the Supabase database: local development points it at the
+    # Docker container, so local tests never touch production data. Sign-in still goes through Supabase.
+    local_database_url: str = Field(default="", validation_alias="DATABASE_URL")
     db_schema: str = "sokonipay"  # the Supabase project is shared, so we keep to our own schema
 
     # Secrets
@@ -59,7 +63,7 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        url = self.supabase_db_conn_str
+        url = self.local_database_url or self.supabase_db_conn_str
         for prefix in ("postgresql://", "postgres://"):
             if url.startswith(prefix):
                 return "postgresql+psycopg://" + url[len(prefix):]

@@ -14,12 +14,12 @@ export default function Venue({ shop }: { shop: Shop }) {
   const [running, setRunning] = useState(false)
   const end = useRef<HTMLDivElement>(null)
   const busy = useRef(false)
-  const [gate, setGate] = useState({ open: shop.open, says: shop.gate_says })
+  const [gate, setGate] = useState({ open: shop.open, says: shop.gate_says, day: shop.ticket_day, ticket: shop.ticket_says })
 
   // The gate can close while this page is open.
   useEffect(() => {
     const t = setInterval(() => {
-      api<Shop>(`/api/shops/${shop.near_id}`).then((s) => setGate({ open: s.open, says: s.gate_says })).catch(() => {})
+      api<Shop>(`/api/shops/${shop.near_id}`).then((s) => setGate({ open: s.open, says: s.gate_says, day: s.ticket_day, ticket: s.ticket_says })).catch(() => {})
     }, 30_000)
     return () => clearInterval(t)
   }, [shop.near_id])
@@ -58,12 +58,12 @@ export default function Venue({ shop }: { shop: Shop }) {
       <Link to="/" className="w-fit rounded-full bg-fill px-3.5 py-2 text-sm font-medium hover:bg-line">Back</Link>
       <ShopHeader shop={shop} />
 
-      {!gate.open && <Notice tone="plain">{gate.says} Tickets are sold while the gate is open.</Notice>}
+      {!gate.open && <Notice tone="plain">{gate.says} A ticket bought now is for {gate.day === 'tomorrow' ? 'tomorrow' : 'when it opens today'}.</Notice>}
 
       {events.length > 0 && <Transcript events={events} running={running} shop={shop} />}
       <div ref={end} />
 
-      {!running && shop.verified && gate.open && (
+      {!running && shop.verified && (
         <Card className="space-y-4">
           <h2 className="text-lg font-bold">{gotTicket ? 'Buy more tickets' : 'How many tickets?'}</h2>
           <ul className="divide-y divide-line">
@@ -90,10 +90,10 @@ export default function Venue({ shop }: { shop: Shop }) {
             <span className="num text-2xl font-extrabold tracking-tight">{fmt(total)}</span>
           </div>
           <Button disabled={!people} onClick={buy} className="w-full">
-            {people ? `Get ${people === 1 ? 'my ticket' : `${people} tickets`}` : 'Pick your tickets'}
+            {people ? `Get ${people === 1 ? 'my ticket' : `${people} tickets`}${gate.open ? '' : gate.day === 'tomorrow' ? ' for tomorrow' : ' for today'}` : 'Pick your tickets'}
           </Button>
           <p className="text-xs text-soft">
-            Your agent asks the venue’s agent for an invoice, checks it and pays. One ticket covers everyone you picked, and works until closing time today.
+            Your agent asks the venue’s agent for an invoice, checks it and pays. One ticket covers everyone you picked. {gate.open ? 'It works until closing time today.' : gate.ticket}
           </p>
         </Card>
       )}

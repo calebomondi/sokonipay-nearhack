@@ -36,7 +36,7 @@ export function Transcript({ events, running, shop }: { events: Ev[]; running: b
               </div>
             )
           case 'receipt': {
-            const r: ReceiptData = { id: e.id, shop: shop.name, shop_id: shop.near_id, kind: e.kind, total: e.total, lines: e.lines, payers: e.payers, tx_hash: e.tx_hash, ticket: e.ticket }
+            const r: ReceiptData = { id: e.id, shop: shop.name, shop_id: shop.near_id, kind: e.kind, total: e.total, lines: e.lines, payers: e.payers, tx_hash: e.tx_hash, ticket: e.ticket, pickup_code: e.pickup_code }
             return <div key={n} className="pt-2">{e.kind === 'Ticket' ? <TicketPass r={r} animate /> : <Receipt r={r} animate />}</div>
           }
           case 'error':

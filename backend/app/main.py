@@ -148,6 +148,8 @@ async def receipts_for(near_id: str) -> list[dict]:
             select(Order).where(Order.customer_near_id == near_id, Order.mode == "sub", Order.invoice_id.is_not(None)))}
         back = {o.invoice_id: o.refunded_at for o in await s.scalars(
             select(Order).where(Order.customer_near_id == near_id, Order.refunded_at.is_not(None)))}
+        pickups = set(await s.scalars(select(Order.invoice_id).where(
+            Order.customer_near_id == near_id, Order.mode == "counter", Order.invoice_id.is_not(None))))
     paid = [i for i in invoices if i["merchant"] != near_id
             and (i["status"] == "Paid" or (i["status"] == "Refunded" and i["paid_at_ms"]))]
     tickets = await asyncio.gather(*(near.view("get_ticket", {"id": i["id"]}) if i["kind"] == "Ticket" else asyncio.sleep(0) for i in paid))
@@ -155,6 +157,7 @@ async def receipts_for(near_id: str) -> list[dict]:
              "total": int(i["amount"]), "paid_at_ms": i["paid_at_ms"], "redeemed": i["redeemed"],
              "refunded_at_ms": ms(back[i["id"]]) if back.get(i["id"]) else None,
              "subscription": renewals.get(i["id"]),
+             "pickup_code": policy.pickup_code(i["id"]) if i["id"] in pickups else None,
              "ticket": ticket_view(t) if i["kind"] == "Ticket" else None,
              "my_share": next((int(c["amount"]) for c in i["contributions"] if c["account_id"] == near_id), None)}
             for i, t in zip(paid, tickets, strict=True)]
@@ -189,11 +192,14 @@ async def get_shop(near_id: str):
     gate = policy.gate_now(shop.hours)
     return {"near_id": shop.near_id, "name": shop.name, "blurb": shop.blurb, "place": shop.place,
             "kind": shop.kind, "hours": shop.hours, "open": gate.open, "gate_says": gate.says,
+            # A ticket sold while the venue is closed is for its next opening: "today" or "tomorrow".
+            "ticket_day": gate.ticket_day, "ticket_says": gate.ticket_says,
             "hours_line": policy.hours_line(shop.hours),
             # That a discount exists and for whom, so a customer's agent knows to ask. Never how much.
             "discounts_for": sorted({policy.describe_rule(r) for r in policy.discount_rules(shop.rules or {})}),
             "verified": bool(await near.view("is_verified", {"account_id": near_id})),
-            "items": [{k: i[k] for k in ("sku", "name", "price", "tags", "stock")} for i in items],
+            "items": [{**{k: i[k] for k in ("sku", "name", "price", "price_kes", "tags", "stock")},
+                       "unit": policy.unit_of(i), "whole": policy.sold_whole(i)} for i in items],
             "charges": await open_charges(near_id) if shop.kind == "counter" else [],
             "plans": await plans_of(near_id)}
 
@@ -205,6 +211,16 @@ def plan_view(p: Plan) -> dict:
 async def plans_of(shop_id: str) -> list[dict]:
     async with Session() as s:
         return [plan_view(p) for p in await s.scalars(select(Plan).where(Plan.shop_near_id == shop_id, Plan.active).order_by(Plan.price_kes))]
+
+
+@app.get("/api/shops/{near_id}/buys")
+async def what_it_buys(near_id: str, amount_kes: int, sku: str | None = None, note: str = ""):
+    """What an amount of money buys at a counter, from the shop's own price list. Nothing is ordered."""
+    if not 1 <= amount_kes <= 1_000_000:
+        raise HTTPException(422, "Enter an amount in shillings.")
+    items = await orders.shop_items(near_id)
+    b = policy.amount_buys(next((i for i in items if i["sku"] == sku), None), amount_kes, note)
+    return {"ok": b.ok, "says": b.says, "what": b.what, "charge_kes": b.charge_kes, "charge": fx.to_micro(b.charge_kes)}
 
 
 CHARGE_LIFE = timedelta(minutes=10)
@@ -242,7 +258,7 @@ async def receipt(invoice_id: str):
     ticket = await near.view("get_ticket", {"id": invoice_id}) if inv["kind"] == "Ticket" else None
     return {"id": inv["id"], "shop": shop.name if shop else inv["merchant"], "shop_id": inv["merchant"], "kind": inv["kind"],
             "status": inv["status"], "total": int(inv["amount"]), "paid_at_ms": inv["paid_at_ms"], "redeemed": inv["redeemed"],
-            "ticket": ticket_view(ticket),
+            "ticket": ticket_view(ticket), "pickup_code": policy.pickup_code(inv["id"]) if order and order.mode == "counter" else None,
             "lines": order.lines if order else None, "tx_hash": tx,
             "payers": [{"id": c["account_id"], "name": who[c["account_id"]], "amount": int(c["amount"])} for c in inv["contributions"]]}
 
@@ -307,17 +323,24 @@ async def wallet(account: Account = Depends(customer_of)):
                                 .group_by(Order.shop_near_id))).all()
         added = list(await s.scalars(select(Deposit).where(Deposit.customer_near_id == account.near_id, Deposit.credited > 0)
                                      .order_by(Deposit.created_at.desc()).limit(30)))
+    lim = limits and {k: int(limits[k]) for k in ("per_payment", "per_day", "spent_in_window")}
+    typed = account.limits_kes or {}
+    if lim and typed.get("micro") == [lim["per_payment"], lim["per_day"]]:
+        lim |= {"per_payment_kes": typed["per_payment"], "per_day_kes": typed["per_day"]}  # as the person typed them
     return {"near_id": account.near_id, "name": account.name, "balance": int(balance), "receipts": receipts,
             # Shops this person pays most and most recently, so the app can list them first.
             "added": [{"id": d.id, "amount": d.credited, "at_ms": ms(d.created_at), "symbol": d.symbol,
                        "chain": intents.CHAINS.get(d.chain, d.chain.title()), "demo": d.mode != "live", "out": d.mode == "out"} for d in added],
             "shops_used": [{"near_id": shop, "times": n, "last": last.isoformat()} for shop, n, last in used],
-            "limits": limits and {k: int(limits[k]) for k in ("per_payment", "per_day", "spent_in_window")}}
+            "limits": lim}
 
 
 class LimitsIn(BaseModel):
     per_payment: int = Field(gt=0, le=10_000_000_000)
     per_day: int = Field(gt=0, le=10_000_000_000)
+    # The same limits in whole shillings, as typed. Kept only to show them back unchanged.
+    per_payment_kes: int | None = Field(default=None, gt=0, le=2_000_000_000)
+    per_day_kes: int | None = Field(default=None, gt=0, le=2_000_000_000)
 
 
 @app.post("/api/wallet/limits")
@@ -329,6 +352,11 @@ async def change_limits(body: LimitsIn, account: Account = Depends(customer_of))
         sent = await near.set_limits(account.near_id, accounts.full_key(account), body.per_payment, body.per_day)
     except near.ContractError as e:
         raise HTTPException(502, f"NEAR did not accept the change: {e.reason}.") from e
+    async with Session() as s:
+        row = await s.get(Account, account.id)
+        row.limits_kes = ({"per_payment": body.per_payment_kes, "per_day": body.per_day_kes, "micro": [body.per_payment, body.per_day]}
+                          if body.per_payment_kes and body.per_day_kes else None)
+        await s.commit()
     return {"ok": True, "tx_hash": sent.tx_hash}
 
 
@@ -648,6 +676,12 @@ class Picked(BaseModel):
     qty: int = Field(ge=1, le=50)
 
 
+class Spend(BaseModel):
+    sku: str | None = Field(default=None, max_length=40)  # none: the shop lists no price for it
+    amount_kes: int = Field(ge=1, le=1_000_000)
+    note: str = Field(default="", max_length=60)
+
+
 class OrderIn(BaseModel):
     shop: str
     goal: str = Field(min_length=3, max_length=300)
@@ -658,6 +692,8 @@ class OrderIn(BaseModel):
     items: list[Picked] | None = Field(default=None, max_length=12)
     # An amount the cashier keyed in at a counter.
     charge: str | None = Field(default=None, max_length=20)
+    # At a counter, the customer names the money: "diesel for 1,500". The shop's agent works out what it buys.
+    spend: Spend | None = None
 
 
 @app.post("/api/orders")
@@ -665,7 +701,8 @@ async def create_order(body: OrderIn, account: Account = Depends(customer_of)):
     basket = [i.model_dump() for i in body.items] if body.items else None
     return sse(lambda emit: orders.run_order(
         account, body.shop, body.goal.strip(), "table" if body.mode == "table" else "pickup", body.presence,
-        1 if basket or body.charge else body.party_size, emit, basket, body.charge), busy_key=account.near_id)
+        1 if basket or body.charge or body.spend else body.party_size, emit, basket, body.charge,
+        spend=body.spend.model_dump() if body.spend else None), busy_key=account.near_id)
 
 
 @app.post("/api/orders/{order_id}/join")
@@ -685,6 +722,9 @@ class NewItem(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     price_kes: int = Field(gt=0, le=1_000_000)  # whole shillings
     category: str = Field(default="main", pattern="^(main|side|drink)$")
+    # A counter's price list: what the price is for ("litre", "kg", "loaf"), and whether it is only sold whole.
+    unit: str = Field(default="", max_length=12)
+    whole: bool = False
 
 
 class ShopIn(BaseModel):
@@ -744,6 +784,9 @@ async def console(account: Account = Depends(merchant_of)):
     splits = (onchain or {}).get("splits", [])
     shares = await asyncio.gather(*(bal(x["account_id"]) for x in splits))
     who = await orders.names(list({o.customer_near_id for o in recent}))
+    # Who has gone in on a ticket, or collected a counter sale: a refund is no longer possible after that.
+    passes = [o for o in recent if o.kind == "Ticket" and o.status == "paid" and o.invoice_id]
+    used = dict(zip((o.id for o in passes), await asyncio.gather(*(near.view("get_ticket", {"id": o.invoice_id}) for o in passes)), strict=True))
     return {
         "near_id": shop_id, "name": shop.name, "place": shop.place, "blurb": shop.blurb, "rules": shop.rules,
         "kind": shop.kind, "status": shop.status, "hours": shop.hours, "open": policy.gate_now(shop.hours).open,
@@ -752,10 +795,13 @@ async def console(account: Account = Depends(merchant_of)):
         "splits": [{"account_id": x["account_id"], "bps": x["bps"], "balance": b} for x, b in zip(splits, shares, strict=True)],
         "supplier": supplier and {"near_id": supplier.near_id, "name": supplier.name},
         "presence": presence.token(shop_id),
-        "items": await orders.shop_items(shop_id),
+        "items": [{**i, "unit": policy.unit_of(i), "whole": policy.sold_whole(i)} for i in await orders.shop_items(shop_id)],
+        "voice": voice.enabled(),
         "orders": [{"id": o.id, "customer": who[o.customer_near_id], "party_size": o.party_size, "goal": o.goal, "mode": o.mode,
                     "status": o.status, "invoice_id": o.invoice_id, "kind": o.kind, "total": o.total, "lines": o.lines,
-                    "agents": o.agent_mode, "at": o.created_at.isoformat()} for o in recent],
+                    "admitted": (used.get(o.id) or {}).get("admitted", 0), "admits": (used.get(o.id) or {}).get("admits", 0),
+                    "code": policy.pickup_code(o.invoice_id) if o.mode == "counter" and o.invoice_id else None,
+                    "agents": o.agent_mode, "at": (o.paid_at or o.created_at).isoformat()} for o in recent],
         "kes_per_usd": fx.rate(),
         "discounts": [{**r, "says": policy.describe_rule(r)} for r in policy.discount_rules(shop.rules or {})],
         "charges": await open_charges(shop_id) if shop.kind == "counter" else [],
@@ -881,7 +927,9 @@ async def shop_facts(account: Account) -> dict:
                         "best_day": max(week, key=lambda d: d["sales"])["day"]},
         "busiest_hour_today": f"{peak:02d}:00" if st["hours"][peak] else None,
         "best_sellers_14_days": [{"name": t["name"], "sold": t["qty"], "kes": t["amount"]} for t in st["top"]],
-        "prices": [{"name": i["name"], "kes": i["price_kes"], **({} if con["kind"] == "venue" else {"in_stock": i["stock"]})} for i in con["items"]],
+        "prices": [{"name": i["name"], "kes": i["price_kes"], **({"per": i["unit"]} if i.get("unit") else {}),
+                    **({"in_stock": i["stock"]} if con["kind"] == "food" else {})} for i in con["items"]],
+        "waiting_to_be_handed_over": [{"customer": o["customer"], "code": o["code"]} for o in con["orders"] if o["code"] and o["status"] == "paid" and not o["admitted"]],
         "low_stock": [i["name"] for i in con["items"] if con["kind"] == "food" and i["stock"] <= 5],
         "plans": [{"name": p["name"], "kes": p["price_kes"], "billed": p["every"], "subscribers": p["subscribers"]} for p in con["plans"]],
         "subscriptions_waiting_for_customer_money": waiting,
@@ -931,7 +979,13 @@ async def redeem(body: RedeemIn, account: Account = Depends(merchant_of)):
     except near.ContractError as e:
         return {"ok": False, "reason": e.reason, "tx_hash": e.tx_hash}
     t = sent.value or {}
-    await log(account.near_id, "info", f"Let in {body.count or 'everyone'} on ticket {ticket_id} ({t.get('admitted')} of {t.get('admits')} now in).", sent.tx_hash)
+    async with Session() as s:
+        order = await s.scalar(select(Order).where(Order.invoice_id == ticket_id))
+    if order is not None and order.mode == "counter":
+        what = policy.listing([policy.Line(**x) for x in order.lines or []])
+        await log(account.near_id, "info", f"Handed over {what} (code {policy.pickup_code(ticket_id)}).", sent.tx_hash)
+    else:
+        await log(account.near_id, "info", f"Let in {body.count or 'everyone'} on ticket {ticket_id} ({t.get('admitted')} of {t.get('admits')} now in).", sent.tx_hash)
     return {"ok": True, "tx_hash": sent.tx_hash, "ticket": t}
 
 
@@ -1082,7 +1136,9 @@ class SweepIn(BaseModel):
 
 @app.post("/api/console/sweep")
 async def sweep(body: SweepIn, account: Account = Depends(merchant_of)):
-    """Move a share the contract set aside (savings, or a partner account under this shop) back to the shop's balance."""
+    """Move the shop's own savings, set aside by the contract, back to the shop's balance."""
+    if body.account_id != f"savings.{account.near_id}":
+        raise HTTPException(422, "Only your savings can be moved back. A partner's share is theirs.")
     try:
         sent = await near.call(account.near_id, accounts.full_key(account), "sweep", {"from": body.account_id}, deposit=near.ONE_YOCTO)
     except near.ContractError as e:
@@ -1117,6 +1173,7 @@ async def stats(account: Account = Depends(merchant_of)):
 
     days = {today - timedelta(days=n): {"sales": 0, "refunds": 0, "count": 0, "refunded": 0, "refused": 0, "who": set()} for n in range(SPAN - 1, -1, -1)}
     hours, usual = [0] * 24, [0.0] * 24
+    earlier: set[date] = set()  # days in the last two weeks, before today, that had a sale
     items: dict[str, dict] = {}
     for o in sold:
         at = utc(o.paid_at).astimezone(tz)
@@ -1129,12 +1186,17 @@ async def stats(account: Account = Depends(merchant_of)):
         if at.date() == today:
             hours[at.hour] += kes(o)
         elif (today - at.date()).days <= 14:
-            usual[at.hour] += kes(o) / 14
+            usual[at.hour] += kes(o)
+            earlier.add(at.date())
         if o.status == "paid" and (today - at.date()).days < 14:
+            # What was actually paid, after any discount, shared across the lines by their list price.
+            listed = sum(line["qty"] * line["unit_price"] for line in o.lines or []) or 1
             for line in o.lines or []:
-                it = items.setdefault(line["name"], {"name": line["name"], "qty": 0, "amount": 0})
+                # A measured counter sale is one line named "Diesel, 12 litres": count it under "Diesel".
+                name = line["name"].split(",")[0] if o.mode == "counter" else line["name"]
+                it = items.setdefault(name, {"name": name, "qty": 0, "amount": 0})
                 it["qty"] += line["qty"]
-                it["amount"] += round(fx.to_kes(line["qty"] * line["unit_price"], (o.settled or {}).get("rate")))
+                it["amount"] += round(kes(o) * line["qty"] * line["unit_price"] / listed)
     for o in back:
         d = days.get(utc(o.refunded_at).astimezone(tz).date())
         if d:
@@ -1146,7 +1208,9 @@ async def stats(account: Account = Depends(merchant_of)):
             d["refused"] += 1
     buyers = days[today]["who"]
     series = [{"day": day.isoformat(), **{k: v for k, v in d.items() if k != "who"}, "customers": len(d["who"])} for day, d in days.items()]
-    return {"days": series, "hours": hours, "usual": [round(v) for v in usual], "today": series[-1], "yesterday": series[-2],
+    # A usual day is the average of the days that had sales, so one earlier day is already something to compare with.
+    return {"days": series, "hours": hours, "usual": [round(v / max(1, len(earlier))) for v in usual], "today": series[-1], "yesterday": series[-2],
+            "now_hour": datetime.now(tz).hour,
             "returning_today": len(buyers & known),
             "top": sorted(items.values(), key=lambda x: -x["amount"])[:6],
             "moves": [{"id": d.id, "amount": d.credited, "at_ms": ms(d.created_at), "symbol": d.symbol,
@@ -1169,7 +1233,8 @@ async def refund(body: RefundIn, account: Account = Depends(merchant_of)):
         sent = await near.call(account.near_id, accounts.full_key(account), "refund", {"id": invoice_id}, deposit=near.ONE_YOCTO)
     except near.ContractError as e:
         why = ("your balance is lower than the sale, so there isn't enough to give back" if "insufficient" in e.reason
-               else "someone has already gone in on this ticket" if "already entered" in e.reason else e.reason)
+               else ("it has already been handed over" if order.mode == "counter" else "someone has already gone in on this ticket")
+               if "already entered" in e.reason else e.reason)
         raise HTTPException(422, f"Not refunded: {why}.") from e
     async with Session() as s:
         row = await s.get(Order, order.id)
@@ -1203,9 +1268,13 @@ async def statement(day: date | None = None, account: Account = Depends(merchant
         return round(fx.to_kes(micro, (o.settled or {}).get("rate")))
 
     def people(o: Order) -> int:
-        return sum(line["qty"] for line in o.lines or []) if o.kind == "Ticket" else 0
+        return sum(line["qty"] for line in o.lines or []) if o.kind == "Ticket" and shop.kind == "venue" else 0
 
-    rows = [{"id": o.invoice_id, "at": o.paid_at.isoformat(), "customer": who[o.customer_near_id], "kind": o.kind,
+    def payer(o: Order) -> str:
+        more = o.party_size - 1
+        return who[o.customer_near_id] + (f" and {more} {'other' if more == 1 else 'others'}" if more > 0 else "")
+
+    rows = [{"id": o.invoice_id, "at": o.paid_at.isoformat(), "customer": payer(o), "kind": o.kind,
              "what": policy.listing([policy.Line(**line) for line in o.lines or []]), "people": people(o),
              "admitted": (t or {}).get("admitted", 0) if o.kind == "Ticket" else 0, "total": o.total, "total_kes": kes(o, o.total),
              "kept": (o.settled or {}).get("kept", o.total), "shares": (o.settled or {}).get("shares", []),
@@ -1224,7 +1293,8 @@ async def statement(day: date | None = None, account: Account = Depends(merchant
                    "net": sales - refunds, "net_kes": sum(r["total_kes"] for r in rows) - sum(kes(o, o.total) for o in back),
                    "people": sum(r["people"] for r in rows if not r["refunded"]), "admitted": sum(r["admitted"] for r in rows),
                    "shared": [{"account_id": k, "amount": v} for k, v in shared.items()],
-                   "kept": sum(r["kept"] for r in rows), "refused": refused or 0},
+                   # The shop's part of each sale, and what is left of it after what it gave back today.
+                   "kept": sum(r["kept"] for r in rows), "kept_net": sum(r["kept"] for r in rows) - refunds, "refused": refused or 0},
     }
 
 

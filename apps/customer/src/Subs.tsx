@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '@shared/api'
+import { useConfirm } from '@shared/Confirm'
 import { Button, Card, Notice, ShopIcon, fmt, when } from '@shared/ui'
 
 type Sub = {
@@ -31,8 +32,10 @@ export default function Subs({ onChanged, onAddMoney }: { onChanged: () => void;
     return () => clearInterval(t)
   }, [load])
 
+  const { ask, sheet } = useConfirm()
   const act = async (s: Sub, action: 'pause' | 'resume' | 'cancel') => {
-    if (busy || (action === 'cancel' && !window.confirm(`Cancel ${s.plan} at ${s.shop}? ${s.shop} can’t bill you for it again.`))) return
+    if (busy) return
+    if (action === 'cancel' && !(await ask({ title: `Cancel ${s.plan}?`, body: `${s.shop} can’t bill you for it again. To come back you would subscribe afresh.`, yes: 'Cancel subscription', no: 'Keep it', danger: true }))) return
     setBusy(s.id)
     try {
       await api(`/api/subscriptions/${s.id}/${action}`, { method: 'POST' })
@@ -51,6 +54,7 @@ export default function Subs({ onChanged, onAddMoney }: { onChanged: () => void;
   const ended = subs.filter((s) => s.status === 'cancelled')
   return (
     <>
+      {sheet}
       {error && <Notice>{error}</Notice>}
       {live.length === 0 && (
         <Card>
@@ -115,9 +119,11 @@ export function Plans({ plans, shop }: { plans: PlanRow[]; shop: string }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const { ask, sheet } = useConfirm()
   if (!plans?.length) return null
   const join = async (p: PlanRow) => {
-    if (busy || !window.confirm(`Subscribe to ${p.name}? ${shop} can bill you ${fmt(p.price)} ${p.every}, starting now. You can pause or cancel any time.`)) return
+    if (busy) return
+    if (!(await ask({ title: `Subscribe to ${p.name}?`, body: `${shop} can bill you ${fmt(p.price)} ${p.every}, starting now. You can pause or cancel any time.`, yes: 'Subscribe' }))) return
     setBusy(p.id)
     setError('')
     try {
@@ -131,6 +137,7 @@ export function Plans({ plans, shop }: { plans: PlanRow[]; shop: string }) {
   }
   return (
     <Card className="space-y-3">
+      {sheet}
       <h2 className="text-lg font-bold">Subscriptions</h2>
       <ul className="divide-y divide-line">
         {plans.map((p) => (

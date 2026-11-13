@@ -4,6 +4,7 @@
 quote the agent accepted before it signs. The agent holds the customer's function-call
 key (pay_invoice, contribute) and nothing else. Limits are enforced by the contract."""
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -39,10 +40,14 @@ class Checkout:
         self.outcome = Outcome()
 
     async def approved(self, quote: dict) -> bool:
-        """May the agent accept this quote? Asked once, before the shop is told to issue an invoice."""
-        if self._approve is None or await self._approve(quote):
+        """May the agent accept this quote? Asked once, before the shop is told to issue an invoice.
+        `approve` answers True, False (the person said no) or None (they never answered)."""
+        said = True if self._approve is None else await self._approve(quote)
+        if said:
             return True
-        self.outcome.status, self.outcome.reason = "failed", "You didn't confirm, so nothing was ordered or paid."
+        self.outcome.status = "failed"
+        self.outcome.reason = ("You said no, so nothing was ordered or paid." if said is False
+                               else "You didn't answer in time, so nothing was ordered or paid.")
         return False
 
     async def pay(self, invoice: dict) -> Outcome:
@@ -50,6 +55,12 @@ class Checkout:
         out = self.outcome
         out.invoice = invoice
         onchain = await near.view("get_invoice", {"id": invoice["invoice_id"]})
+        for _ in range(5):
+            # The invoice was written a moment ago; the node answering this read may be a block behind.
+            if onchain is not None:
+                break
+            await asyncio.sleep(0.8)
+            onchain = await near.view("get_invoice", {"id": invoice["invoice_id"]})
         ok = (onchain and self.accepted and onchain["merchant"] == self.shop_id
               and int(onchain["amount"]) == self.accepted["total"] and onchain["status"] == "Open")
         if not ok:
@@ -83,9 +94,10 @@ class Checkout:
 
 class ScriptedPersonal:
     def __init__(self, goal: str, party_size: int, items: list[dict], channel: Channel, checkout: Checkout,
-                 basket: list[dict] | None = None):
+                 basket: list[dict] | None = None, opening: str = ""):
         self.goal, self.party, self.items, self.channel, self.checkout = goal, party_size, items, channel, checkout
         self.basket = basket  # exactly what the person picked: buy it at the listed price, no haggling
+        self.opening = opening  # the first thing to say to the shop, when the default wouldn't fit
 
     async def _buy_as_picked(self) -> Outcome:
         out = self.checkout.outcome
@@ -95,7 +107,7 @@ class ScriptedPersonal:
             return out
         q = await self.channel.send({
             "type": "request_quote", "items": [{"sku": line.sku, "qty": line.qty} for line in lines],
-            "lines": [line.dict() for line in lines], "note": f"Hello. {policy.listing(lines)}, please. What is the total?",
+            "lines": [line.dict() for line in lines], "note": self.opening or f"Hello. {policy.listing(lines)}, please. What is the total?",
         })
         if q["type"] != "quote":
             out.reason = q.get("note", "The shop could not quote that.")
@@ -310,19 +322,19 @@ def _slim(reply: dict) -> dict:
 
 async def run_personal(goal: str, party_size: int, items: list[dict], channel: Channel, checkout: Checkout,
                        customer_name: str, limits: dict | None, balance: int, emit: Emit,
-                       basket: list[dict] | None = None) -> Outcome:
+                       basket: list[dict] | None = None, opening: str = "") -> Outcome:
     """LLM agent when a NEAR AI key is set. If it fails before any invoice exists, the scripted agent takes over.
     A picked basket (gate tickets) has nothing to decide, so it always takes the fast scripted path."""
     if basket is not None:
-        return await ScriptedPersonal(goal, party_size, items, channel, checkout, basket).run()
+        return await ScriptedPersonal(goal, party_size, items, channel, checkout, basket, opening).run()
     if settings.llm_enabled:
         try:
             out = await LlmPersonal(goal, party_size, items, channel, checkout, customer_name, limits, balance).run()
             if out.invoice or out.reason:
                 return out
-            if not out.reason and not out.invoice:
-                out.reason = "Your agent and the shop didn't settle on an order, so nothing was paid. Try naming the dishes you want."
-                return out
+            # The model stopped without ordering (a request like "lunch for two" names no dish). Nothing was
+            # agreed, so the built-in rules pick a main, a side and a drink for each person and carry on.
+            await emit({"t": "status", "ok": True, "text": "Your agent is choosing from the menu for you."})
         except Exception as e:
             if checkout.outcome.reason and not checkout.outcome.invoice:  # the person said no: that is the answer
                 return checkout.outcome

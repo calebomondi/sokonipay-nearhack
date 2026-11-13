@@ -77,7 +77,7 @@ export async function stream<E>(path: string, body: unknown, onEvent: (e: E) => 
 
 export type Line = { sku: string; name: string; qty: number; unit_price: number }
 export type Payer = { id: string; name: string; amount: number }
-export type Limits = { per_payment: number; per_day: number; spent_in_window: number }
+export type Limits = { per_payment: number; per_day: number; spent_in_window: number; per_payment_kes?: number; per_day_kes?: number }
 export type PublicAccount = { near_id: string; name: string; role: string; ready: boolean }
 export type Me = { user: { name: string | null; email: string | null }; is_admin: boolean; customer: PublicAccount | null; merchant: PublicAccount | null
   shops: { near_id: string; name: string; ready: boolean; kind: string; status: string }[]
@@ -90,7 +90,7 @@ export type Ev =
   | { t: 'invoice'; id: string; total: number; kind: string; lines: Line[] }
   | { t: 'refused'; text: string; reason: string; hash?: string | null }
   | { t: 'collecting'; order_id: string; invoice_id: string; total: number; party_size: number; funded: number; paid: Payer[] }
-  | { t: 'receipt'; id: string; total: number; kind: string; lines: Line[] | null; payers: Payer[]; tx_hash?: string | null; ticket?: Ticket | null }
+  | { t: 'receipt'; id: string; total: number; kind: string; lines: Line[] | null; payers: Payer[]; tx_hash?: string | null; ticket?: Ticket | null; pickup_code?: string | null }
   | { t: 'error'; text: string }
   | { t: 'done'; order_id: string; status: string }
 
@@ -100,4 +100,6 @@ export type Ticket = { admits: number; admitted: number; valid_until_ms: number;
 export type ReceiptData = {
   id: string; shop: string; shop_id: string; kind: string; status?: string; total: number
   lines: Line[] | null; payers: Payer[]; paid_at_ms?: number | null; tx_hash?: string | null; redeemed?: boolean; ticket?: Ticket | null
+  /** Set for a counter sale paid ahead: the three digits the customer shows the cashier to collect. */
+  pickup_code?: string | null
 }

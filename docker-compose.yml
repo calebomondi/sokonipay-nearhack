@@ -1,0 +1,26 @@
+# Local development database. Production uses Supabase; this keeps local tests away from it.
+#   docker compose up -d --wait db     start it (scripts/dev.sh does this for you)
+#   ./scripts/db-reset.sh              empty it
+#   ./scripts/db-shell.sh              open a SQL prompt
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: sokonipay-db
+    environment:
+      # Local only: the port is bound to this machine and holds nothing but test data.
+      POSTGRES_USER: sokonipay
+      POSTGRES_PASSWORD: sokonipay
+      POSTGRES_DB: sokonipay
+    ports:
+      - "127.0.0.1:5433:5432"   # 5433, so it never clashes with a Postgres already on 5432
+    volumes:
+      - sokonipay-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sokonipay -d sokonipay"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  sokonipay-db:

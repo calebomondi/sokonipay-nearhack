@@ -33,7 +33,7 @@ export function ShopHeader({ shop }: { shop: Shop }) {
       <div className="flex items-center gap-4">
         <span className="scale-125 pl-1"><ShopIcon name={shop.name} /></span>
         <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold leading-tight tracking-tight">{shop.name}{shop.verified && <>{'\u00A0'}<Tick size={20} /></>}</h1>
+          <h1 className="text-balance text-2xl font-extrabold leading-tight tracking-tight">{shop.name.split(' ').slice(0, -1).join(' ')} <span className="whitespace-nowrap">{shop.name.split(' ').slice(-1)}{shop.verified && <>{'\u00A0'}<Tick size={20} /></>}</span></h1>
           <p className="text-sm text-soft">{KIND[shop.kind] ?? 'Shop'}</p>
         </div>
       </div>
@@ -41,7 +41,7 @@ export function ShopHeader({ shop }: { shop: Shop }) {
       <ul className="mt-4 space-y-2.5 text-sm">
         {shop.place && <Fact icon="pin">{shop.place}</Fact>}
         {shop.hours_line && <Fact icon="clock"><span className={closed ? 'text-soft' : 'font-medium text-good'}>{shop.hours_line.split(' · ')[0]}</span>{shop.hours_line.includes(' · ') && <span className="text-soft"> · {shop.hours_line.split(' · ')[1]}</span>}</Fact>}
-        {shop.verified && <Fact icon="shield" quiet>Verified shop · <span className="break-all">{shop.near_id}</span></Fact>}
+        {shop.verified && <Fact icon="shield" quiet>Verified shop<span className="block truncate text-xs" title={shop.near_id}>{shop.near_id}</span></Fact>}
         {shop.discounts_for.length > 0 && <Fact icon="tag">Offers a discount for {shop.discounts_for.slice(0, 2).join(', or ')}. Your agent asks.</Fact>}
         {times > 0 && <Fact icon="again" quiet>You’ve paid here {times === 1 ? 'once' : `${times} times`}</Fact>}
       </ul>

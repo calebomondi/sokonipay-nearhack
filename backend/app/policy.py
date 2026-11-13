@@ -59,8 +59,10 @@ def is_ticket(items: list[dict], lines: list[Line]) -> bool:
 @dataclass
 class Gate:
     open: bool
-    closes_at_ms: int  # when today's tickets stop working; 0 if the venue keeps no hours
+    closes_at_ms: int  # when a ticket sold now stops working; 0 if the venue keeps no hours
     says: str
+    ticket_says: str = ""  # what a ticket sold right now is good for
+    ticket_day: str = ""  # "" while open; "today" or "tomorrow" for a ticket sold while closed
 
 
 def gate_now(hours: dict | None, now: datetime | None = None) -> Gate:
@@ -82,10 +84,15 @@ def gate_now(hours: dict | None, now: datetime | None = None) -> Gate:
             closes += timedelta(days=1)
     span = f"{hours['open']} to {hours['close']}"
     if now < opens:
-        return Gate(False, 0, f"We're not open yet. Gates are open {span}.")
+        # Not open yet: a ticket sold now is for the session that starts later today.
+        return Gate(False, int(closes.timestamp() * 1000), f"We're not open yet. Gates are open {span}.",
+                    f"Valid today, {span}.", "today")
     if now >= closes:
-        return Gate(False, 0, f"We're closed for today. Gates are open {span}.")
-    return Gate(True, int(closes.timestamp() * 1000), f"Valid until {hours['close']} today.")
+        # Closed for the day: a ticket sold now is for tomorrow, so it doesn't die at midnight.
+        closes += timedelta(days=1)
+        return Gate(False, int(closes.timestamp() * 1000), f"We're closed for today. Gates are open {span}.",
+                    f"Valid tomorrow, {span}.", "tomorrow")
+    return Gate(True, int(closes.timestamp() * 1000), f"Valid until {hours['close']} today.", f"Valid until {hours['close']} today.")
 
 
 def hours_line(hours: dict | None) -> str:
@@ -169,6 +176,60 @@ def price_request(items: list[dict], wanted: list[dict]) -> tuple[list[Line], li
             continue
         lines.append(Line(item["sku"], item["name"], min(qty, item["stock"], 50), item["price"]))
     return lines, missing
+
+
+# ---------------------------------------------------------------- a counter: buying by amount
+
+
+def unit_of(item: dict) -> str:
+    return next((t[5:] for t in item.get("tags", []) if t.startswith("unit:")), "")
+
+
+def sold_whole(item: dict) -> bool:
+    return "whole" in item.get("tags", [])
+
+
+def _plural(unit: str, qty: float) -> str:
+    if qty == 1 or unit.endswith("s") or len(unit) <= 2:
+        return unit
+    return {"loaf": "loaves", "box": "boxes", "bunch": "bunches"}.get(unit, unit + "s")
+
+
+def pickup_code(invoice_id: str) -> str:
+    """Three digits the customer and the cashier both see, to match a payment to the person at the counter."""
+    return f"{int(invoice_id[-6:], 16) % 1000:03d}"
+
+
+@dataclass
+class Buys:
+    """What an amount of money buys at a counter."""
+    ok: bool
+    says: str  # the shop's sentence: "KES 1,500 buys 12 litres of Diesel at KES 125 a litre."
+    what: str = ""  # the line on the receipt: "Diesel, 12 litres"
+    charge_kes: int = 0  # what is actually charged: less than offered when goods come in whole units
+    qty: int = 0  # whole units, when the item is sold that way; otherwise 0
+
+
+def amount_buys(item: dict | None, amount_kes: int, note: str = "") -> Buys:
+    """'Diesel for 1,500': the shop works out the quantity from its own price list, never the customer."""
+    if item is None:
+        what = " ".join(note.split())[:60] or "Counter sale"
+        return Buys(True, f"KES {amount_kes:,} for {what}. I have no listed price for that, so the cashier decides what it covers.", what, amount_kes)
+    price, unit, name = int(item["price_kes"]), unit_of(item), item["name"]
+    each = f"KES {price:,}{' a ' + unit if unit else ' each'}"
+    if sold_whole(item) or not unit:
+        n = min(amount_kes // price, 50)
+        if n < 1:
+            return Buys(False, f"KES {amount_kes:,} doesn't cover one {unit or name} of {name}: it is {each}." if unit else f"KES {amount_kes:,} doesn't cover one {name}: it is {each}.")
+        charge = n * price
+        count = f"{n} {_plural(unit, n)} of {name}" if unit else f"{n} × {name}"
+        back = f" I'll charge KES {charge:,}, not KES {amount_kes:,}." if charge != amount_kes else ""
+        return Buys(True, f"KES {amount_kes:,} buys {count} at {each}.{back}", f"{name}, {n} {_plural(unit, n)}" if unit else name, charge, n)
+    qty = round(amount_kes / price, 2)
+    if qty <= 0:
+        return Buys(False, f"KES {amount_kes:,} is too little for {name} at {each}.")
+    shown = f"{qty:.2f}".rstrip("0").rstrip(".")
+    return Buys(True, f"KES {amount_kes:,} buys {shown} {_plural(unit, qty)} of {name} at {each}.", f"{name}, {shown} {_plural(unit, qty)}", amount_kes)
 
 
 # ---------------------------------------------------------------- customer side

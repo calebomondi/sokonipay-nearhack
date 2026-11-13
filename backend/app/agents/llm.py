@@ -20,4 +20,5 @@ def chat(temperature: float = 0.2):
 
 
 def mode_label() -> str:
-    return f"NEAR AI Cloud ({models()[0]})" if settings.llm_enabled else "Scripted rules"
+    # The model behind it is a setting, not something customers or owners need to read.
+    return "NEAR AI Cloud" if settings.llm_enabled else "Scripted rules"

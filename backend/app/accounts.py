@@ -16,10 +16,9 @@ from app.auth import User
 from app.config import settings
 from app.db import Account, Item, Session, Shop
 
-# What a new food stall starts with. The owner edits these in the console.
+# What a new food stall starts with. No discounts: prices are final until the owner adds a rule in the console.
 DEFAULT_RULES = {
-    "discounts": [{"kind": "total", "min_kes": 1000, "percent": 5}, {"kind": "total", "min_kes": 2000, "percent": 10},
-                  {"kind": "group", "people": 2, "min_kes": 1000, "percent": 10}],
+    "discounts": [],
     "presence_for_table": True,
     "max_cost_markup": 1.1,
 }
@@ -156,7 +155,12 @@ def new_items(shop_id: str, kind: str, items: list[dict], taken: set[str] | None
         taken.add(sku)
         kes = int(it["price_kes"])
         price = fx.to_micro(kes)
-        if kind == "venue":
+        if kind == "counter":
+            # A counter's price list: what one unit costs, so the shop's agent can work out what an amount buys.
+            unit = " ".join(str(it.get("unit") or "").lower().split())[:12]
+            tags = ["counter"] + ([f"unit:{unit}"] if unit else []) + (["whole"] if it.get("whole") or not unit else [])
+            out.append(Item(shop_near_id=shop_id, sku=sku, name=it["name"][:80], price=price, price_kes=kes, tags=tags, stock=100_000))
+        elif kind == "venue":
             out.append(Item(shop_near_id=shop_id, sku=sku, name=it["name"][:80], price=price, price_kes=kes, tags=["ticket"], stock=100_000))
         else:
             out.append(Item(shop_near_id=shop_id, sku=sku, name=it["name"][:80], price=price, price_kes=kes, tags=[it.get("category") or "main"],

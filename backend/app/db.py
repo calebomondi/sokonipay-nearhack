@@ -52,6 +52,9 @@ class Account(Base):
     full_key_enc: Mapped[str] = mapped_column(Text)
     # The only key an agent is ever given.
     agent_key_enc: Mapped[str] = mapped_column(Text)
+    # The limits as the person typed them, in shillings, with the dollar amounts they became onchain.
+    # Shown back as typed, so a moving exchange rate doesn't turn 20,000 into 20,010.
+    limits_kes: Mapped[dict | None] = mapped_column(JSON)
     # False until every onchain setup step has succeeded. Setup resumes where it stopped.
     ready: Mapped[bool] = mapped_column(default=False)
     is_demo: Mapped[bool] = mapped_column(default=False)
@@ -104,7 +107,7 @@ class Order(Base):
     customer_near_id: Mapped[str] = mapped_column(String(64), index=True)
     party_size: Mapped[int] = mapped_column(default=1)
     goal: Mapped[str] = mapped_column(String(300))
-    mode: Mapped[str] = mapped_column(String(8))  # table | pickup | sub (a subscription renewal)
+    mode: Mapped[str] = mapped_column(String(8))  # table | pickup | sub (a subscription renewal) | counter (bought by amount)
     # negotiating | collecting (group, waiting for shares) | paid | refunded | refused | failed
     status: Mapped[str] = mapped_column(String(16), default="negotiating")
     agent_mode: Mapped[str] = mapped_column(String(60), default="")
@@ -243,6 +246,7 @@ async def init_db() -> None:
             f"ALTER TABLE \"{sch}\".accounts DROP CONSTRAINT IF EXISTS accounts_user_id_role_key",
             f"ALTER TABLE \"{sch}\".chat_messages ADD COLUMN IF NOT EXISTS thread_id VARCHAR(20)",
             f"ALTER TABLE \"{sch}\".orders ADD COLUMN IF NOT EXISTS settled JSON",
+            f"ALTER TABLE \"{sch}\".accounts ADD COLUMN IF NOT EXISTS limits_kes JSON",
             f"ALTER TABLE \"{sch}\".orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP WITH TIME ZONE",
             f"ALTER TABLE \"{sch}\".orders ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP WITH TIME ZONE",
             # Sales made before these columns existed count as paid when they were ordered.
