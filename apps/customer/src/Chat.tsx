@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { api, send as post, stream, type Ev, type Line } from '@shared/api'
 import { Button, Notice, ShopIcon, fmt, usd } from '@shared/ui'
+import { useVoice } from '@shared/useVoice'
 import { Transcript } from './Transcript'
 
 type Past = { role: 'user' | 'agent'; text: string; at: string; order: { shop: string; shop_id: string; events: Ev[] } | null }
@@ -54,42 +55,16 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
   const end = useRef<HTMLDivElement>(null)
   const [voice, setVoice] = useState(false) // the server has a speech service
   const [aloud, setAloud] = useState(() => localStorage.getItem(SPEAK_KEY) === '1')
-  const [hearing, setHearing] = useState<'off' | 'on' | 'working'>('off')
-  const recorder = useRef<MediaRecorder | null>(null)
   const speak = (words: string) => { void say(words).catch(() => {}) }
 
-  // Tap to start, tap to stop. The words are sent as a normal message, so what was heard is on screen.
-  async function listen() {
-    if (hearing === 'on') return recorder.current?.stop()
-    if (hearing === 'working' || busy.current) return
+  // Tap and speak. The recording stops by itself when the person stops talking, and the words are sent as a
+  // normal message, so what was heard is on screen.
+  const voiceIn = useVoice((heard) => void send(heard), setError)
+  const { hearing, level } = voiceIn
+  const listen = () => {
+    if (busy.current && hearing === 'off') return
     setError('')
-    try {
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const rec = new MediaRecorder(mic)
-      const parts: Blob[] = []
-      rec.ondataavailable = (e) => parts.push(e.data)
-      rec.onstop = async () => {
-        mic.getTracks().forEach((t) => t.stop())
-        clearTimeout(limit)
-        setHearing('working')
-        try {
-          const form = new FormData()
-          form.append('file', new Blob(parts, { type: rec.mimeType || 'audio/webm' }), 'speech')
-          const { text: heard } = (await (await post('/api/voice/transcribe', form)).json()) as { text: string }
-          setHearing('off')
-          void send(heard)
-        } catch (e) {
-          setHearing('off')
-          setError((e as Error).message)
-        }
-      }
-      const limit = setTimeout(() => rec.state === 'recording' && rec.stop(), 30_000)
-      recorder.current = rec
-      rec.start()
-      setHearing('on')
-    } catch {
-      setError('The microphone isn’t available. Allow it in your browser, or type your message.')
-    }
+    void voiceIn.listen()
   }
 
   const loadThreads = () => api<{ chats: Thread[]; agent: string; voice?: boolean }>('/api/chats').then((r) => { setThreads(r.chats); setAgent(r.agent); setVoice(!!r.voice); return r.chats })
@@ -250,13 +225,14 @@ export default function Chat({ onPaid }: { onPaid: () => void }) {
           {voice && (
             <button type="button" onClick={listen} disabled={!!live || hearing === 'working'} aria-pressed={hearing === 'on'} aria-label={hearing === 'on' ? 'Stop and send' : 'Speak to your agent'}
               className={`relative flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-full ring-1 ring-line disabled:opacity-60 ${hearing === 'on' ? 'bg-bad text-white' : 'bg-card hover:bg-fill'}`}>
-              {hearing === 'on' && <span className="absolute inset-0 animate-ping rounded-full bg-bad/40" aria-hidden />}
+              {/* Grows with the voice, so the person can see they are being heard. */}
+              {hearing === 'on' && <span className="absolute inset-0 rounded-full bg-bad/35 transition-transform duration-75" style={{ transform: `scale(${1 + level * 0.7})` }} aria-hidden />}
               {hearing === 'on'
                 ? <span className="relative h-4 w-4 rounded-[4px] bg-white" aria-hidden />
                 : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" /></svg>}
             </button>
           )}
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={!!live || hearing !== 'off'} placeholder={hearing === 'on' ? 'Listening… tap the square to send' : hearing === 'working' ? 'Working out what you said…' : live ? 'Your agent is working…' : 'Ask, or say what to buy'} aria-label="Message your agent"
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={600} disabled={!!live || hearing !== 'off'} placeholder={hearing === 'on' ? 'Listening… stop talking to send' : hearing === 'working' ? 'Working out what you said…' : live ? 'Your agent is working…' : 'Ask, or say what to buy'} aria-label="Message your agent"
             className="min-w-0 flex-1 rounded-full bg-card px-5 py-3.5 outline-none ring-1 ring-line placeholder:text-soft focus:ring-2 focus:ring-iris disabled:opacity-60" />
           <Button disabled={!!live || !text.trim()} aria-label="Send" className="!px-4">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 19V5M6 11l6-6 6 6" /></svg>
