@@ -26,6 +26,7 @@ The project started at the gate of the Nairobi Arboretum, a park in Kenya. In Ke
 3. **Agent to agent is faster than person to person.** The business shows one printed code that only says who it is. Every customer in the line scans it at the same moment on their own phone, and their agents settle with the business's agent in seconds. Nobody reads out a number or waits for a prompt, and a failed payment is retried on the spot instead of at the back of the line.
 4. **It matters most where businesses are small and phones are everywhere.** Where most small businesses are informal and most customers already pay from a phone, a printed code and an agent is a cheap way in: no card terminal, no website to build. Nairobi is where it was designed and tested; the queue it removes exists everywhere.
 5. **An agent with money needs hard limits.** Giving an agent the key to your wallet lets it spend everything. In SokoniPay each agent holds a NEAR function-call key that can call only a few contract methods and cannot attach a deposit. The contract checks the customer's per-payment and daily limit on every payment. Anything that moves authority or takes money out (limits, withdrawals, refunds, revenue splits, subscriptions) needs the owner's own key.
+6. **People can talk to their agent instead of typing.** Many people would rather say what they want than type it, and a cashier serving a queue has their hands full. Customers and owners can speak to their agents and hear the answers, through ElevenLabs. The recording stops by itself when the person stops talking. Speaking never pays for anything: a payment still needs a tap on "Yes, pay".
 
 A payment can only go to an invoice issued by a verified business. There are no person-to-person transfers.
 
@@ -43,6 +44,7 @@ Each row is something to do and what you should see. All money is demo money.
 | Home → "Limits" → lower the per-payment limit → buy again | The contract now refuses a smaller purchase. Only you can change limits; the agent cannot. |
 | "Kilimani Service Station" → pick Diesel → type `1500` | "KES 1,500 buys 12 litres of Diesel at KES 125 a litre." You name the money; the station's agent works out the quantity from its price list. Pay, and you get a three-digit code to show the cashier. |
 | "Chat" → type `Get me 2 adult tickets at the Arboretum` | The agent finds the venue and agrees a price, then stops at "Shall I pay?". Nothing is paid until you tap "Yes, pay". The agent-to-agent conversation can be opened and read. |
+| "Chat" → tap the speaker icon at the top, then the microphone → say "What's my balance?" → stop talking | About a second after you stop, your words appear as your message (ElevenLabs speech to text), then the answer, read aloud (ElevenLabs text to speech). You don't tap anything to finish. Say nothing and it stops after 6 seconds with "I didn't hear anything". |
 | "Mama Njeri's Kitchen" → choose 2 people → type `lunch for two` | The agents agree a meal. If a discount rule fits, the stall's agent gives the full discount that rule allows and names it. Your share goes into escrow in the contract, and a link lets a friend pay theirs. The stall is paid once, when the last share arrives. If the bill expires first, every share comes back. |
 | "Kasarani Fibre" → subscribe to a plan | An in-app confirmation, then a monthly mandate written to the contract and the first bill paid. Under "Subs" you can pause, resume or cancel. The contract refuses a bill that is early, for a different amount, or after cancelling. |
 | Home → "Add money" → pick a chain and a stablecoin → 25 | A live quote from NEAR Intents. "Try it with demo money" credits the quoted amount in demo dollars. |
@@ -60,7 +62,8 @@ Use the same Google account or another one.
 | In the user app, find your business and buy from it | The sale appears in the console without a reload: Today, the sales chart, and for a counter the "To hand over" list with the customer's code |
 | Counter: click "Handed over" on that sale | A `redeem` on the contract. It can happen once, and after it the contract refuses a refund. The customer's pass turns to "Collected". |
 | Refund a sale that hasn't been handed over or used | The contract returns the money to whoever paid. The customer sees it in Activity. |
-| "Ask your agent" → `How did we do today?` | An answer from the business's real figures. This agent reads and changes nothing. |
+| "Ask your agent" → `How did we do today?`, typed or spoken with the microphone | An answer from the business's real figures. This agent reads and changes nothing. |
+| Counter: "Read payments aloud" on the till | Each new payment is announced as it arrives, so a cashier serving a queue doesn't have to watch the screen |
 | Settings → split 10% to savings, then sell again | The contract divides the next sale in the same transaction. "Daily statement" shows it, and downloads as CSV. |
 
 ### Verifying businesses
@@ -105,6 +108,14 @@ The two agents are separate LangGraph graphs on NEAR AI Cloud. They share no mem
 | NEP-297 events | `payment`, `revenue_split`, `refund`, `subscribe`, `withdraw` and others, for an indexer or an accountant |
 | NEAR AI Cloud | Inference for both agents and the chat agent |
 | NEAR Intents 1Click API | Live quotes for adding and withdrawing money in the stablecoins of about 25 chains |
+
+### Other services
+
+| Service | What it does here |
+|---|---|
+| ElevenLabs | Speech to text (Scribe) when someone speaks to their agent, and text to speech (Flash) for the agent's answers and for announcing payments at the till. Amounts are read as "1,274 shillings". The API key stays on the backend, and recordings and spoken replies are length-capped. Without a key, the voice buttons don't appear and the till uses the browser's own voice. |
+| Supabase | Google sign-in, and the Postgres database for the hosted demo |
+| Railway | Hosts the backend and both apps |
 
 ### The contract
 
@@ -167,7 +178,8 @@ Limits of the hackathon build:
 | `scripts/` | Deploy the contracts, run everything locally |
 | `app/` | The first version (Next.js, no accounts). Kept for reference; not deployed. |
 | `PROJECT.md`, `BUILD.md` | What the product is and how it was built |
-| `TEST_PROMPT.md`, `RETEST_PROMPT.md` | Step-by-step browser tests with expected results |
+| `JUDGE_TEST_PROMPT.md` | The README's judge path as a browser-agent test, with expected results and a report format |
+| `TEST_PROMPT.md`, `RETEST_PROMPT.md` | The full browser test and the retest, with expected results |
 
 ## Run the tests
 
