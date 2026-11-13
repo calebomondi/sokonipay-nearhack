@@ -238,3 +238,9 @@ async def register_merchant(near_id: str, full_key: str, name: str) -> Sent:
 async def set_verified(near_id: str, verified: bool) -> Sent:
     """Only the contract owner can do this. Customers' agents refuse to connect to an unverified shop."""
     return await call(ROOT, settings.root_account_key, "set_verified", {"merchant": near_id, "verified": verified})
+
+
+async def refund_expired(invoice_id: str) -> Sent:
+    """Return every share of a split bill that expired before it was fully paid. The contract lets anyone
+    call this; the server does it so nobody has to claim their own money back."""
+    return await call(ROOT, settings.root_account_key, "refund_expired", {"id": invoice_id})

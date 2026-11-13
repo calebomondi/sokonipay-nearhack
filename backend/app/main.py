@@ -48,7 +48,16 @@ async def lifespan(_: FastAPI):
             except Exception:
                 pass  # the next tick tries again
 
-    tasks = [asyncio.create_task(keep_rate()), asyncio.create_task(bill_subscriptions())]
+    async def return_expired_shares() -> None:
+        while True:
+            await asyncio.sleep(120)
+            try:
+                await orders.return_expired_shares()
+            except Exception:
+                pass  # the next tick tries again
+
+    tasks = [asyncio.create_task(keep_rate()), asyncio.create_task(bill_subscriptions()),
+             asyncio.create_task(return_expired_shares())]
     yield
     for t in tasks:
         t.cancel()
@@ -153,7 +162,9 @@ def _share(inv: dict, near_id: str) -> int | None:
 async def receipts_for(near_id: str) -> list[dict]:
     invoices = await near.view("get_invoices_for", {"account_id": near_id, "limit": 30})
     # A share of a split bill still waiting for the others. The contract holds it, so it has already left the balance.
-    held = [i for i in invoices if i["merchant"] != near_id and i["kind"] == "Group" and i["status"] == "Open" and _share(i, near_id)]
+    # A bill that expired unpaid is kept too ("Returned"): the share went out, then came back.
+    held = [i for i in invoices if i["merchant"] != near_id and i["kind"] == "Group" and _share(i, near_id)
+            and (i["status"] == "Open" or (i["status"] == "Refunded" and not i["paid_at_ms"]))]
     async with Session() as s:
         bills = {o.invoice_id: o.id for o in await s.scalars(
             select(Order).where(Order.invoice_id.in_([i["id"] for i in held])))} if held else {}
@@ -175,7 +186,8 @@ async def receipts_for(near_id: str) -> list[dict]:
              "ticket": ticket_view(t) if i["kind"] == "Ticket" else None,
              "my_share": _share(i, near_id)}
             for i, t in zip(paid, tickets, strict=True)] + [
-        {"id": i["id"], "shop": shops.get(i["merchant"], i["merchant"]), "kind": i["kind"], "status": "Open",
+        {"id": i["id"], "shop": shops.get(i["merchant"], i["merchant"]), "kind": i["kind"],
+         "status": "Open" if i["status"] == "Open" else "Returned",
          "total": int(i["amount"]), "paid_at_ms": None, "redeemed": False, "refunded_at_ms": None, "subscription": None,
          "pickup_code": None, "ticket": None, "my_share": _share(i, near_id),
          # The contract doesn't record when each share came in, so the line is dated when the bill was opened.
@@ -815,7 +827,7 @@ async def console(account: Account = Depends(merchant_of)):
     return {
         "near_id": shop_id, "name": shop.name, "place": shop.place, "blurb": shop.blurb, "rules": shop.rules,
         "kind": shop.kind, "status": shop.status, "hours": shop.hours, "open": policy.gate_now(shop.hours).open,
-        "verified": bool(onchain and onchain["verified"]), "agents": llm.mode_label(),
+        "verified": bool(onchain and onchain["verified"]), "agents": llm.mode_label(), "self_verify": settings.demo_self_verify,
         "balance": balance, "limits": limits and {k: int(limits[k]) for k in ("per_payment", "per_day", "spent_in_window")},
         "splits": [{"account_id": x["account_id"], "bps": x["bps"], "balance": b} for x, b in zip(splits, shares, strict=True)],
         "supplier": supplier and {"near_id": supplier.near_id, "name": supplier.name},
@@ -1380,7 +1392,7 @@ async def admin_home(_: User = Depends(admin_of)):
     }
 
 
-async def _review(near_id: str, verified: bool, status: str) -> dict:
+async def _review(near_id: str, verified: bool, status: str, by_owner: bool = False) -> dict:
     async with Session() as s:
         shop = await s.get(Shop, near_id)
     if shop is None:
@@ -1393,8 +1405,23 @@ async def _review(near_id: str, verified: bool, status: str) -> dict:
         row = await s.get(Shop, near_id)
         row.status = status
         await s.commit()
-    await log(near_id, "info", "An admin verified this shop. Customers can now find it." if verified else "An admin suspended this shop.", sent.tx_hash)
+    said = ("You verified this shop yourself (demo). Customers can now find it." if by_owner
+            else "An admin verified this shop. Customers can now find it." if verified else "An admin suspended this shop.")
+    await log(near_id, "info", said, sent.tx_hash)
     return {"ok": True, "tx_hash": sent.tx_hash}
+
+
+@app.post("/api/console/verify")
+async def verify_own_shop(account: Account = Depends(merchant_of)):
+    """Demo only: the owner puts their own new shop on the onchain register, the same `set_verified` an admin sends.
+    It verifies this one shop and nothing else, and never lifts a suspension."""
+    if not settings.demo_self_verify:
+        raise HTTPException(403, "Shops are verified by SokoniPay.")
+    async with Session() as s:
+        shop = await s.get(Shop, account.near_id)
+    if shop is None or shop.status != "pending":
+        raise HTTPException(409, "Only a shop waiting to be verified can be verified this way.")
+    return await _review(account.near_id, True, "approved", by_owner=True)
 
 
 @app.post("/api/admin/shops/{near_id}/approve")

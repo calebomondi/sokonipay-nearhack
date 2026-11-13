@@ -59,6 +59,9 @@ class Settings(BaseSettings):
 
     # People who may approve shops and see the admin page (comma-separated emails).
     admin_emails: str = ""
+    # Hosted demo only: a shop's owner may verify their own new shop, so judges can try the whole flow.
+    # A real deployment leaves this off and an admin checks each shop, which is what stops fake codes.
+    demo_self_verify: bool = False
 
     allowed_origins: str = "http://localhost:5173,http://localhost:5174"
 

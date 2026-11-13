@@ -18,6 +18,7 @@ type Rule = { kind: 'total' | 'group' | 'time' | 'returning'; percent: number; m
 type ChargeRow = { id: string; amount: number; amount_kes: number; note: string; at: string; taken: boolean }
 type Data = {
   near_id: string; name: string; place: string; blurb: string; verified: boolean; agents: string
+  self_verify?: boolean // hosted demo: the owner may verify their own new shop
   kind: 'venue' | 'food' | 'counter'; status: 'pending' | 'approved' | 'suspended'; hours: { open: string; close: string } | null; open: boolean
   balance: number; limits: Limits | null
   splits: { account_id: string; bps: number; balance: number }[]
@@ -202,6 +203,7 @@ export default function Console({ isAdmin, shops, onSwitch }: { isAdmin: boolean
           <div className="rounded-3xl bg-amber-wash p-5 print:hidden">
             <p className="text-lg font-bold text-amber">Waiting for SokoniPay to verify your shop</p>
             <p className="mt-1 text-sm">Customers can’t find you yet, and your code appears once you’re verified. Meanwhile, set up your {venue ? 'tickets and hours' : counter ? 'discounts and split' : 'menu'}.</p>
+            {d.self_verify && <VerifySelf onDone={() => load()} />}
           </div>
         )}
         {d.status === 'suspended' && <div className="print:hidden"><Notice>SokoniPay has suspended this shop. Customers can’t pay you until it is verified again.</Notice></div>}
@@ -416,6 +418,34 @@ function Switcher({ shops, current, onSwitch }: { shops: ShopRef[]; current: str
             : <p className="px-3 py-2 text-xs text-soft">Five shops is the most one account can have.</p>}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Hosted demo only. In a real deployment SokoniPay checks a shop before verifying it, which is what stops a
+ * fake code; here the owner can do it, so someone trying the demo sees the whole flow. It is the same onchain call.
+ */
+function VerifySelf({ onDone }: { onDone: () => unknown }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const go = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await api('/api/console/verify', { method: 'POST' })
+      await onDone()
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-4 rounded-2xl bg-card p-4">
+      <p className="text-sm font-semibold">Trying the demo? Verify this shop yourself.</p>
+      <p className="mt-1 text-xs text-soft">This puts your shop on the onchain register of verified shops, the same call SokoniPay makes after checking a real business. It works only for your own new shop, and only in this demo.</p>
+      <Button tone="dark" disabled={busy} onClick={go} className="mt-3 !px-4 !py-2 text-sm">{busy ? 'Verifying on NEAR…' : 'Verify my shop (demo)'}</Button>
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
     </div>
   )
 }

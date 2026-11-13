@@ -12,7 +12,7 @@ import Subs from './Subs'
 import Withdraw from '@shared/Withdraw'
 
 type Row = { id: string; shop: string; kind: string; status: string; total: number; my_share: number | null; paid_at_ms: number | null; refunded_at_ms: number | null; subscription: string | null; ticket: Ticket | null; pickup_code: string | null
-  // Only on a split-bill share the contract is still holding (status 'Open').
+  // Only on a split-bill share: held by the contract (status 'Open'), or returned after the bill expired ('Returned').
   held_at_ms?: number; expires_at_ms?: number; order_id?: string | null }
 type Wallet = {
   near_id: string; name: string; balance: number; limits: Limits | null; receipts: Row[]
@@ -110,13 +110,18 @@ export default function Home({ hasShop }: { hasShop: boolean }) {
   // Everything that moved the balance, newest first: payments out, refunds and money added in.
   const moves: Move[] = [
     // A split-bill share still waiting for the others: the contract holds it, so it has left the balance already.
-    ...wallet.receipts.filter((r) => r.status === 'Open').map((r): Move => ({
+    // If the bill expired before everyone paid, the share went out and then came back.
+    ...wallet.receipts.filter((r) => r.status === 'Open' || r.status === 'Returned').map((r): Move => ({
       key: r.id, at: r.held_at_ms ?? 0, amount: -(r.my_share ?? r.total), title: r.shop, shop: true, to: r.order_id ? `/join/${r.order_id}` : null, ticket: false,
-      note: r.expires_at_ms && r.expires_at_ms < Date.now()
-        ? 'Your share of a split bill. It expired before everyone paid; the contract still holds your share'
+      note: r.status === 'Returned' ? 'Your share of a split bill'
+        : r.expires_at_ms && r.expires_at_ms < Date.now() ? 'Your share of a split bill. It expired before everyone paid, so it is on its way back'
         : 'Your share of a split bill, held until everyone has paid',
     })),
-    ...wallet.receipts.filter((r) => r.status !== 'Open').map((r): Move => ({
+    ...wallet.receipts.filter((r) => r.status === 'Returned').map((r): Move => ({
+      key: 'back-' + r.id, at: r.expires_at_ms ?? 0, amount: r.my_share ?? r.total, title: r.shop, shop: true, to: r.order_id ? `/join/${r.order_id}` : null, ticket: false,
+      note: 'Split bill expired before everyone paid: your share came back',
+    })),
+    ...wallet.receipts.filter((r) => r.status !== 'Open' && r.status !== 'Returned').map((r): Move => ({
       key: r.id, at: r.paid_at_ms ?? 0, amount: -(r.my_share ?? r.total), title: r.shop, shop: true, to: `/r/${r.id}`, ticket: r.kind === 'Ticket',
       note: r.pickup_code ? `Bought at the counter${r.ticket?.state === 'used' ? ', collected' : ', to collect'}` : r.kind === 'Ticket' ? `Entry ticket${r.status === 'Paid' && r.ticket && r.ticket.state !== 'valid' ? `, ${r.ticket.state}` : ''}` : r.kind === 'Group' ? 'Your share of a split bill' : r.subscription ? r.subscription.replace(/ subscription$/, ', subscription') : 'Order',
     })),

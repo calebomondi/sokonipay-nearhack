@@ -283,3 +283,23 @@ async def join_order(order_id: str, payer: Account, emit: Emit) -> Order | None:
         await run.emit({"t": "done", "order_id": order.id, "status": "collecting" if status != "refused" else "refused"})
         await run.save()
         return order
+
+
+async def return_expired_shares() -> None:
+    """Split bills whose time ran out before everyone paid: give each share back and close the bill."""
+    async with Session() as s:
+        waiting = list(await s.scalars(select(Order).where(Order.status == "collecting", Order.invoice_id.is_not(None))))
+    now_ms = datetime.now(UTC).timestamp() * 1000
+    for order in waiting:
+        inv = await near.view("get_invoice", {"id": order.invoice_id})
+        if inv is None or inv["status"] == "Paid":
+            continue  # a paid bill is closed by the share that completed it
+        if inv["status"] == "Open":
+            if now_ms <= inv["expires_at_ms"]:
+                continue
+            sent = await near.refund_expired(order.invoice_id)
+            await log(order.shop_near_id, "refund", f"Split bill {order.invoice_id} expired unpaid: every share went back", sent.tx_hash)
+        async with Session() as s:
+            row = await s.get(Order, order.id)
+            row.status = "expired"  # not refunded_at: the shop was never paid, so this is no refund of a sale
+            await s.commit()

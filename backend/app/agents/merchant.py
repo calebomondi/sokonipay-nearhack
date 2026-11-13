@@ -128,7 +128,6 @@ class ScriptedMerchant:
 
 
 class QuoteArgs(BaseModel):
-    discount_percent: float = Field(description="Percent off this order, from 0 up to the maximum you were told.")
     note: str = Field(description="One short, friendly sentence to the customer's agent stating the total in KES.")
 
 
@@ -137,9 +136,10 @@ class _State(TypedDict):
 
 
 class LlmMerchant:
-    """A separate LangGraph graph from the Personal Agent's. For each incoming message the
-    model decides the discount and the reply by calling `make_quote`; the desk clamps it.
-    Accepting a quote needs no judgement, so the invoice is issued directly."""
+    """A separate LangGraph graph from the Personal Agent's. For each incoming message the model writes
+    the reply by calling `make_quote`. The discount is not the model's choice: when the customer's agent
+    asks for a better price, it gets exactly what the owner's rules allow, so the rules a customer reads
+    are the rules they get. Accepting a quote needs no judgement, so the invoice is issued directly."""
 
     def __init__(self, desk: Desk):
         self.desk = desk
@@ -168,25 +168,26 @@ class LlmMerchant:
         if not lines:
             return {"type": "error", "note": f"We're out of {', '.join(missing) or 'that'}."}
         cap, why = d.best_offer(lines)
-        max_pct = cap / 100
         asked = msg["type"] == "counter"
+        bps = cap if asked else 0
         try:
             out = await self._graph.ainvoke({"messages": [
                 SystemMessage(
                     f"You are the sales agent for {d.shop_name}, a market kitchen. You talk to a customer's AI agent. "
-                    f"Prices are fixed by the owner. For this order you may give between 0 and {max_pct:g} percent off"
-                    f"{', because the owner allows it for ' + why if why else ''}. If you give a discount, say that reason. "
-                    "Give no discount unless the customer's agent asks for a better price. When asked, larger orders "
-                    "and group orders earn more of the allowed discount. Be brief and warm. Amounts are in Kenyan shillings (KES)."),
+                    "Prices and discounts are fixed by the owner's rules; you only write the reply. "
+                    + (f"This order gets {bps / 100:g} percent off, because the owner allows it for {why}: say so. " if bps
+                       else "This order gets no discount: say the price is already the best one. " if asked
+                       else "State the total. ")
+                    + "Be brief and warm. Amounts are in Kenyan shillings (KES)."),
                 HumanMessage(json.dumps({
                     "customer_message": msg.get("note", ""), "asked_for_better_price": asked,
                     "order": [{"name": line.name, "qty": line.qty, "unit_price_kes": policy.shillings(line.unit_price)} for line in lines],
                     "subtotal_kes": policy.shillings(policy.subtotal(lines)), "group_order": d.is_group,
+                    "total_kes": policy.shillings(policy.apply_discount(policy.subtotal(lines), bps)),
                     "out_of_stock": missing,
                 })),
             ]})
             args = out["messages"][-1].tool_calls[0]["args"]
-            bps = round(float(args.get("discount_percent", 0)) * 100) if asked else 0
             q = d.quote(wanted, bps)
             # The model's sentence may quote a total it computed itself. Ours is the one that counts.
             q["note"] = self._note(q, str(args.get("note", "")), asked)
