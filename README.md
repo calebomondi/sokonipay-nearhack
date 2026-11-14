@@ -216,15 +216,6 @@ In Supabase, add `http://localhost:5173/auth/callback` and `http://localhost:517
 
 Leave `NEAR_AI_CLOUD_API_KEY` empty, or set `AGENT_MODE=scripted`, to run the agents without a model. Leave `ELEVENLABS_API_KEY` empty and the voice buttons do not appear.
 
-## Other project by the same author
-
-The author also built [Thalace Shops](https://github.com/calebomondi/thalace-shops) for this hackathon. The two are separate projects with separate code and contracts:
-
-- **Thalace Shops** is about a business selling online: each shop has an agent and a wallet on NEAR Intents, and sells to people and to other agents.
-- **SokoniPay** is about a customer paying a business in person: one code at the gate or till, a customer agent with onchain spending limits, and its own contract for invoices, tickets, refunds and subscriptions.
-
-They are in separate repositories. They use the same Supabase project for sign-in and Postgres, in separate schemas.
-
 ## License
 
 MIT. See `LICENSE`.
